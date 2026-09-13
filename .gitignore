@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+uploads/products/*
+!uploads/products/.gitkeep
+.env
