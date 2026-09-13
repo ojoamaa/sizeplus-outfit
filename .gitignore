@@ -4,3 +4,6 @@ __pycache__/
 uploads/products/*
 !uploads/products/.gitkeep
 .env
+uploads/
+__pycache__/
+*.pyc
