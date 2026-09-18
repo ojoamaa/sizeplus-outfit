@@ -6,15 +6,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 import sqlite3, os, hashlib, secrets, shutil
+from database import conn
 
 BASE=os.path.dirname(__file__); DB=os.path.join(BASE,'sizeplus.db'); UPLOADS=os.path.join(BASE,'uploads','products')
 os.makedirs(UPLOADS,exist_ok=True)
-app=FastAPI(title='Sizeplus Outfit Retail Management + E-commerce',version='0.6.1-client-review')
+app=FastAPI(title='Sizeplus Outfit Retail Management + E-commerce',version='0.7.0-development')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 def now(): return datetime.utcnow().isoformat()
-def conn():
-    c=sqlite3.connect(DB); c.row_factory=sqlite3.Row; c.execute('PRAGMA foreign_keys=ON'); return c
 def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
 def audit(c,user_id,action,entity,entity_id=None,detail=''):
     c.execute('INSERT INTO audit_logs(user_id,action,entity,entity_id,detail,created_at) VALUES(?,?,?,?,?,?)',(user_id,action,entity,str(entity_id or ''),detail,now()))
