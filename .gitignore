@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 .vs/
 sizeplus.db
+main_pre_postgres.py
+sizeplus_pre_postgres_migration.db

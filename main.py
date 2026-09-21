@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 import sqlite3, os, hashlib, secrets, shutil
-from database import conn
+from database import conn, DatabaseIntegrityError
 
 BASE=os.path.dirname(__file__); DB=os.path.join(BASE,'sizeplus.db'); UPLOADS=os.path.join(BASE,'uploads','products')
 os.makedirs(UPLOADS,exist_ok=True)
@@ -105,7 +105,7 @@ def demo_pay(order_id:int, token:str):
     for i in items:
         v=c.execute('SELECT * FROM variants WHERE id=?',(i['variant_id'],)).fetchone()
         if v['qty']<i['qty']: c.close(); raise HTTPException(409,'Stock changed before payment')
-        c.execute('UPDATE variants SET qty=qty-?,reserved_qty=max(reserved_qty-?,0) WHERE id=?',(i['qty'],i['qty'],i['variant_id'])); c.execute('INSERT INTO stock_movements(variant_id,movement_type,qty,reason,reference,user_id,created_at) VALUES(?,?,?,?,?,?,?)',(i['variant_id'],'OUT',i['qty'],'Online paid order',o['order_no'],None,now()))
+        c.execute('UPDATE variants SET qty=qty-?,reserved_qty=GREATEST(reserved_qty-?,0) WHERE id=?',(i['qty'],i['qty'],i['variant_id'])); c.execute('INSERT INTO stock_movements(variant_id,movement_type,qty,reason,reference,user_id,created_at) VALUES(?,?,?,?,?,?,?)',(i['variant_id'],'OUT',i['qty'],'Online paid order',o['order_no'],None,now()))
     c.execute("UPDATE orders SET payment_status='PAID',order_status='PAID_PROCESSING',paid_at=? WHERE id=?",(now(),order_id)); c.commit(); c.close(); return {'ok':True,'status':'PAID'}
 
 @app.get('/api/dashboard')
@@ -125,7 +125,7 @@ def products(u=Depends(current_user)):
 def create_product(d:ProductCreate,u=Depends(owner_only)):
     c=conn()
     try: cur=c.execute('INSERT INTO products(name,category,sku,description,cost_price,selling_price,low_stock_threshold,featured,active) VALUES(?,?,?,?,?,?,?,?,?)',(d.name,d.category,d.sku,d.description,d.cost_price,d.selling_price,d.low_stock_threshold,int(d.featured),int(d.active)))
-    except sqlite3.IntegrityError: c.close(); raise HTTPException(400,'SKU already exists')
+    except DatabaseIntegrityError: c.close(); raise HTTPException(400,'SKU already exists')
     audit(c,u['id'],'CREATE','product',cur.lastrowid,d.sku); c.commit(); pid=cur.lastrowid; c.close(); return {'id':pid}
 @app.patch('/api/products/{pid}')
 def update_product(pid:int,d:ProductUpdate,u=Depends(owner_only)):
@@ -138,7 +138,7 @@ def update_product(pid:int,d:ProductUpdate,u=Depends(owner_only)):
 def add_variant(d:VariantCreate,u=Depends(owner_only)):
     c=conn()
     try: cur=c.execute('INSERT INTO variants(product_id,size,color,qty,barcode) VALUES(?,?,?,?,?)',(d.product_id,d.size,d.color,d.qty,d.barcode))
-    except sqlite3.IntegrityError: c.close(); raise HTTPException(400,'This size/colour variant already exists')
+    except DatabaseIntegrityError: c.close(); raise HTTPException(400,'This size/colour variant already exists')
     if d.qty: c.execute('INSERT INTO stock_movements(variant_id,movement_type,qty,reason,reference,user_id,created_at) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,'IN',d.qty,'Opening stock','PRODUCT_CREATE',u['id'],now()))
     audit(c,u['id'],'CREATE','variant',cur.lastrowid,f'{d.size}/{d.color}; opening={d.qty}'); c.commit(); c.close(); return {'id':cur.lastrowid}
 @app.post('/api/products/{pid}/images')
@@ -224,7 +224,7 @@ def create_staff(d:StaffCreate,u=Depends(owner_only)):
     if d.role not in ['sales_rep']: raise HTTPException(400,'Only Sales Representative accounts can be created here')
     c=conn()
     try: cur=c.execute('INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)',(d.name,d.email,hash_pw(d.password),d.role))
-    except sqlite3.IntegrityError: c.close(); raise HTTPException(400,'Email already exists')
+    except DatabaseIntegrityError: c.close(); raise HTTPException(400,'Email already exists')
     audit(c,u['id'],'CREATE','staff',cur.lastrowid,d.email); c.commit(); c.close(); return {'id':cur.lastrowid}
 
 app.mount('/static',StaticFiles(directory=os.path.join(BASE,'static')),name='static'); app.mount('/uploads',StaticFiles(directory=os.path.join(BASE,'uploads')),name='uploads')
