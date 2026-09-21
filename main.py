@@ -7,6 +7,15 @@ from typing import Optional, List
 from datetime import datetime
 import sqlite3, os, hashlib, secrets, shutil
 from database import conn, DatabaseIntegrityError
+import cloudinary
+import cloudinary.uploader
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 
 BASE=os.path.dirname(__file__); DB=os.path.join(BASE,'sizeplus.db'); UPLOADS=os.path.join(BASE,'uploads','products')
 os.makedirs(UPLOADS,exist_ok=True)
@@ -142,14 +151,66 @@ def add_variant(d:VariantCreate,u=Depends(owner_only)):
     if d.qty: c.execute('INSERT INTO stock_movements(variant_id,movement_type,qty,reason,reference,user_id,created_at) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,'IN',d.qty,'Opening stock','PRODUCT_CREATE',u['id'],now()))
     audit(c,u['id'],'CREATE','variant',cur.lastrowid,f'{d.size}/{d.color}; opening={d.qty}'); c.commit(); c.close(); return {'id':cur.lastrowid}
 @app.post('/api/products/{pid}/images')
-async def upload_image(pid:int,image:UploadFile=File(...),u=Depends(owner_only)):
-    ext=os.path.splitext(image.filename or '')[1].lower()
-    if ext not in ['.jpg','.jpeg','.png','.webp']: raise HTTPException(400,'Use JPG, PNG or WEBP images')
-    name=f'p{pid}_{secrets.token_hex(6)}{ext}'; path=os.path.join(UPLOADS,name)
-    with open(path,'wb') as f: shutil.copyfileobj(image.file,f)
-    url='/uploads/products/'+name; c=conn(); exists=c.execute('SELECT 1 FROM product_images WHERE product_id=?',(pid,)).fetchone(); c.execute('INSERT INTO product_images(product_id,image_url,is_primary,created_at) VALUES(?,?,?,?)',(pid,url,0 if exists else 1,now()));
-    if not exists: c.execute('UPDATE products SET image=? WHERE id=?',(url,pid))
-    audit(c,u['id'],'UPLOAD_IMAGE','product',pid,name); c.commit(); c.close(); return {'image_url':url}
+async def upload_image(
+    pid: int,
+    image: UploadFile = File(...),
+    u=Depends(owner_only)
+):
+    ext = os.path.splitext(image.filename or '')[1].lower()
+
+    if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
+        raise HTTPException(400, 'Use JPG, PNG or WEBP images')
+
+    try:
+        result = cloudinary.uploader.upload(
+            image.file,
+            folder='sizeplus-outfit/products',
+            public_id=f'product_{pid}_{secrets.token_hex(6)}',
+            resource_type='image',
+            overwrite=False
+        )
+
+        url = result['secure_url']
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f'Image upload failed: {str(e)}'
+        )
+
+    c = conn()
+
+    exists = c.execute(
+        'SELECT 1 FROM product_images WHERE product_id=?',
+        (pid,)
+    ).fetchone()
+
+    c.execute(
+        '''INSERT INTO product_images
+        (product_id,image_url,is_primary,created_at)
+        VALUES(?,?,?,?)''',
+        (pid, url, 0 if exists else 1, now())
+    )
+
+    if not exists:
+        c.execute(
+            'UPDATE products SET image=? WHERE id=?',
+            (url, pid)
+        )
+
+    audit(
+        c,
+        u['id'],
+        'UPLOAD_IMAGE',
+        'product',
+        pid,
+        url
+    )
+
+    c.commit()
+    c.close()
+
+    return {'image_url': url}
 @app.get('/api/products/{pid}/images')
 def product_images(pid:int,u=Depends(current_user)):
     c=conn(); d=[dict(x) for x in c.execute('SELECT * FROM product_images WHERE product_id=? ORDER BY is_primary DESC,id',(pid,))]; c.close(); return d
