@@ -31,7 +31,7 @@
 <section class="servicebar"><div class="service"><b>Nationwide Delivery</b><span>Abuja pickup and delivery options</span></div><div class="service"><b>Shared Live Stock</b><span>Online and boutique inventory synchronized</span></div><div class="service"><b>Personalized Support</b><span>Chat or call 08033117766</span></div><div class="service"><b>Curated Collections</b><span>Turkey & surrounding markets</span></div></section>
 <section class="section alt" id="collections"><div class="section-head"><div><div class="eyebrow">Browse your way</div><h2>Shop by Collection</h2><div class="muted">Choose a category to jump directly into the full shop catalogue.</div></div></div><div id="categoryStrip" class="categoryStrip"></div></section>
 <section class="section" id="new"><div class="section-head"><div><div class="eyebrow">Just in</div><h2>New Arrivals</h2><div class="muted">Only products specifically marked “New Arrival” by the Owner appear here.</div></div><a href="#shop" class="viewlink">View full shop →</a></div><div id="newProducts" class="grid"></div></section>
-<section class="section alt" id="shop"><div class="section-head"><div><div class="eyebrow">The full collection</div><h2>Shop Sizeplus Outfit</h2><div class="muted">Browse all live products. New Arrival badges are kept separate from this general shopping area.</div></div></div><div class="toolbar"><input id="searchInput" class="searchbox" placeholder="Search dresses, tops, bags…" oninput="applyStoreFilters()"><div id="filters" class="toolbar" style="margin:0"></div></div><div id="products" class="grid"></div></section>
+<section class="section alt" id="shop"><div class="section-head"><div><div class="eyebrow">The full collection</div><h2>Shop Sizeplus Outfit</h2><div class="muted">Browse all live products. New Arrival badges are kept separate from this general shopping area.</div></div></div><div class="toolbar"><input id="searchInput" class="searchbox" placeholder="Search dresses, tops, bags…" oninput="applyStoreFilters()"></div><div id="products" class="grid"></div></section>
 <div class="banner"><div><div class="eyebrow" style="color:#f0cbd6">SHOP WITH CONFIDENCE</div><h2 style="margin:8px 0;font-family:Georgia">Need help with sizing?</h2><div style="color:#e5d7dc">Our sales team at Banex Vom, Wuse 2 can help you choose the right fit before checkout.</div></div><button class="btn" onclick="window.open('https://wa.me/2348033117766?text=Hello%20Sizeplus%20Outfit%2C%20I%20need%20help%20with%20sizing%20or%20an%20order.','_blank')">Chat on WhatsApp</button></div>
 <section class="section" id="about"><div class="section-head"><div><div class="eyebrow">OUR STORY</div><h2>About Sizeplus Outfit</h2><p class="muted" style="max-width:760px">Sizeplus Outfit is a women’s fashion boutique in Wuse 2, Abuja, offering polished, comfortable and expressive pieces for women who want confidence, quality and style. Our collections are sourced largely from Turkey and surrounding markets, with an emphasis on flattering fits, versatile wardrobe pieces and attentive customer service.</p></div></div><div class="servicebar" style="border:1px solid var(--line);border-radius:18px;overflow:hidden"><div class="service"><b>Curated Fashion</b><span>Selected styles from Turkey & beyond</span></div><div class="service"><b>Inclusive Fit</b><span>Fashion that celebrates every curve</span></div><div class="service"><b>Personal Service</b><span>Sizing support in-store and online</span></div><div class="service"><b>Shared Live Stock</b><span>Website and boutique inventory synchronized</span></div></div></section>
 <section class="section" id="contact"><div class="section-head"><div><div class="eyebrow">VISIT OR REACH US</div><h2>Contact Sizeplus Outfit</h2></div></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))"><div class="card"><div class="card-body"><h3>Visit the boutique</h3><p class="muted">Shop No. GB 19, Banex Vom (Plaza), Wuse 2, Abuja.</p></div></div><div class="card"><div class="card-body"><h3>Call / WhatsApp</h3><p><a href="tel:+2348033117766">08033117766</a></p><p><a href="https://wa.me/2348033117766" target="_blank">Chat on WhatsApp</a></p></div></div><div class="card"><div class="card-body"><h3>Email</h3><p><a href="mailto:sizeplus9@gmail.com">sizeplus9@gmail.com</a></p></div></div><div class="card"><div class="card-body"><h3>Staff Access</h3><p class="muted">Owner and Sales Representatives can access boutique operations here.</p><p><a href="/staff">Open Staff Login →</a></p></div></div></div></section>
@@ -41,12 +41,70 @@
 <script>
 let catalog=[],cart=[],activeCategory='All',selectedProduct=null;const money=n=>'₦'+Number(n).toLocaleString();
 async function getProducts(){catalog=await (await fetch('/api/store/products')).json();renderFilters();renderCategories();renderNewArrivals();renderProducts(catalog)}
-function renderFilters(){let cats=['All',...new Set(catalog.map(x=>x.category).filter(Boolean))];filters.innerHTML=cats.map((x,i)=>`<button class="chip ${i===0?'active':''}" onclick="filterCat(${JSON.stringify(x)},this)">${x}</button>`).join('')}
-function renderCategories(){let cats=[...new Set(catalog.map(x=>x.category).filter(Boolean))];categoryStrip.innerHTML=cats.length?cats.map(x=>`<button class="categoryTile" onclick="jumpCategory(${JSON.stringify(x)})">${x} →</button>`).join(''):'<span class="muted">Collections will appear as products are added.</span>'}
-function jumpCategory(cat){activeCategory=cat;document.getElementById('shop').scrollIntoView();setTimeout(()=>{document.querySelectorAll('#filters .chip').forEach(b=>b.classList.toggle('active',b.textContent===cat));applyStoreFilters()},120)}
+function renderFilters(){}
+function jumpCategory(cat) {
+    activeCategory = cat;
+
+    const search = document.getElementById('searchInput');
+    if (search) {
+        search.value = '';
+    }
+
+    applyStoreFilters();
+
+    const shop = document.getElementById('shop');
+    if (shop) {
+        shop.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    }
+}
+function renderCategories(){
+    let cats = [...new Set(catalog.map(x => x.category).filter(Boolean))];
+
+    categoryStrip.innerHTML = cats.length
+        ? cats.map(cat =>
+            `<button class="categoryTile" type="button" data-category="${cat}">
+                ${cat} →
+            </button>`
+          ).join('')
+        : `<span class="muted">Collections will appear as products are added.</span>`;
+
+    categoryStrip.querySelectorAll('.categoryTile').forEach(button => {
+        button.addEventListener('click', function () {
+            jumpCategory(this.dataset.category);
+        });
+    });
+}
 function filterCat(cat,b){activeCategory=cat;document.querySelectorAll('#filters .chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');applyStoreFilters()}
 function syncSearch(v){searchInput.value=v;applyStoreFilters();if(v.trim())document.getElementById('shop').scrollIntoView()}
-function applyStoreFilters(){let q=(searchInput.value||'').trim().toLowerCase(),list=catalog.filter(x=>(activeCategory==='All'||x.category===activeCategory)&&(!q||(x.name+' '+x.category+' '+x.description).toLowerCase().includes(q)));renderProducts(list)}
+function applyStoreFilters() {
+    let q = (searchInput.value || '').trim().toLowerCase();
+
+    let list;
+
+    if (q) {
+        // A search searches the entire catalogue,
+        // regardless of the previously selected collection.
+        activeCategory = 'All';
+
+        list = catalog.filter(x =>
+            (
+                (x.name || '') + ' ' +
+                (x.category || '') + ' ' +
+                (x.description || '')
+            ).toLowerCase().includes(q)
+        );
+    } else {
+        // With no search text, respect the selected collection.
+        list = catalog.filter(x =>
+            activeCategory === 'All' || x.category === activeCategory
+        );
+    }
+
+    renderProducts(list);
+}
 function renderNewArrivals(){let fresh=catalog.filter(x=>x.featured);newProducts.innerHTML=fresh.length?fresh.map(p=>productCard(p,'new',true)).join(''):'<p class="muted">No products are currently marked as New Arrivals. The Owner can mark them from Products in the dashboard.</p>'}
 function productCard(p,ctx,showBadge){let img=p.image||'/static/assets/dress.svg';return `<article class="card">${showBadge?'<div class="badge">NEW ARRIVAL</div>':''}<img src="${img}" alt="${p.name}" onclick="openProduct(${p.id})" style="cursor:pointer"><div class="card-body"><div class="small muted">${p.category}</div><h3 onclick="openProduct(${p.id})" style="cursor:pointer">${p.name}</h3><div class="price">${money(p.selling_price)}</div><p class="muted small">${p.description||''}</p><span class="viewlink" onclick="openProduct(${p.id})">View details</span><div class="variant"><select id="v-${ctx}-${p.id}">${p.variants.map(v=>`<option value="${v.variant_id}" ${v.available<1?'disabled':''}>${v.size} · ${v.color} · ${v.available} available</option>`).join('')}</select></div><button class="add" onclick="add(${p.id},'${ctx}')">Add to bag</button></div></article>`}
 function renderProducts(list){products.innerHTML=list.length?list.map(p=>productCard(p,'shop',false)).join(''):'<p class="muted">No products match your search.</p>'}
