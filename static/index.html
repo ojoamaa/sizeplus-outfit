@@ -261,14 +261,13 @@ async function placeOrder() {
                     : 'Your items are reserved pending payment and delivery.'}
             </p>
 
-            <button class="add"
-                onclick="demoPay(
+                        <button class="add"
+                onclick="startPaystackPayment(
                     ${d.order_id},
                     '${d.token || d.access_token}',
-                    this,
-                    '${deliveryMethod}'
+                    this
                 )">
-                Demo: Confirm Paystack Payment
+                Pay securely with Paystack
             </button>
         </div>`;
 
@@ -280,44 +279,44 @@ async function placeOrder() {
     }, 100);
 }
 
-async function demoPay(id, token, button, deliveryMethod) {
+async function startPaystackPayment(id, token, button) {
     button.disabled = true;
-    button.textContent = 'Confirming...';
+    button.textContent = 'Connecting to Paystack...';
 
-    const response = await fetch(
-        `/api/store/orders/${id}/demo-pay?token=${encodeURIComponent(token)}`,
-        { method: 'POST' }
-    );
+    try {
+        const response = await fetch(
+            `/api/store/orders/${id}/paystack/initialize?token=${encodeURIComponent(token)}`,
+            { method: 'POST' }
+        );
 
-    const data = await response.json();
+        const data = await response.json();
 
-    if (!response.ok) {
+        if (!response.ok) {
+            throw new Error(
+                typeof data.detail === 'string'
+                    ? data.detail
+                    : 'Unable to initialize Paystack payment.'
+            );
+        }
+
+        if (!data.authorization_url) {
+            throw new Error('Paystack authorization URL was not returned.');
+        }
+
+        window.location.href = data.authorization_url;
+
+    } catch (error) {
         button.disabled = false;
-        button.textContent = 'Try again';
+        button.textContent = 'Pay securely with Paystack';
 
-        return alert(
-            typeof data.detail === 'string'
-                ? data.detail
-                : (
-                    data.detail?.message ||
-                    data.detail?.detail ||
-                    'Payment confirmation failed.'
-                )
+        alert(
+            error.message ||
+            'Unable to connect to Paystack. Please try again.'
         );
     }
-
-    const successMessage =
-        deliveryMethod === 'Pickup'
-            ? 'Payment confirmed.<br>Your order is ready for processing for pickup at Sizeplus Outfit, Wuse 2, Abuja.'
-            : 'Payment confirmed.<br>Your order is now being processed for delivery.';
-
-    orderMsg.innerHTML =
-        `<div class="notice"><b>${successMessage}</b></div>`;
-
-    cart = [];
-    renderCart();
-    await getProducts();
 }
+
+
 getProducts();
 renderCart();
 </script>

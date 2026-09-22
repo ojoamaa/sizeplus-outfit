@@ -9,6 +9,7 @@ import sqlite3, os, hashlib, secrets, shutil
 from database import conn, DatabaseIntegrityError
 import cloudinary
 import cloudinary.uploader
+import httpx
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -184,6 +185,249 @@ def create_store_order(d:StoreOrder):
         'subtotal': subtotal,
         'delivery_fee': fee,
         'total': total
+    }
+@app.post('/api/store/orders/{order_id}/paystack/initialize')
+def initialize_paystack(order_id: int, token: str):
+    secret_key = os.getenv('PAYSTACK_SECRET_KEY')
+
+    if not secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail='Paystack is not configured.'
+        )
+
+    c = conn()
+    order = c.execute(
+        'SELECT * FROM orders WHERE id=? AND access_token=?',
+        (order_id, token)
+    ).fetchone()
+
+    if not order:
+        c.close()
+        raise HTTPException(status_code=404, detail='Order not found')
+
+    if order['payment_status'] == 'PAID':
+        c.close()
+        raise HTTPException(status_code=409, detail='Order is already paid')
+
+    if not order['email']:
+        c.close()
+        raise HTTPException(
+            status_code=400,
+            detail='Customer email is required for Paystack payment.'
+        )
+
+    amount_kobo = int(round(float(order['total']) * 100))
+
+    payload = {
+    'email': order['email'],
+    'amount': amount_kobo,
+    'reference': order['order_no'],
+    'callback_url': 'https://sizeplusoutfit.com/api/store/paystack/callback',
+    'metadata': {
+        'order_id': order['id'],
+        'order_no': order['order_no']
+    }
+}
+    headers = {
+        'Authorization': f'Bearer {secret_key}',
+        'Content-Type': 'application/json'
+    }
+
+    try:
+        response = httpx.post(
+            'https://api.paystack.co/transaction/initialize',
+            json=payload,
+            headers=headers,
+            timeout=20.0
+        )
+    except httpx.RequestError:
+        c.close()
+        raise HTTPException(
+            status_code=502,
+            detail='Could not connect to Paystack.'
+        )
+
+    c.close()
+
+    try:
+        result = response.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=502,
+            detail='Invalid response received from Paystack.'
+        )
+
+    if response.status_code >= 400 or not result.get('status'):
+        raise HTTPException(
+            status_code=502,
+            detail=result.get('message', 'Paystack initialization failed.')
+        )
+
+    data = result['data']
+
+    return {
+        'authorization_url': data['authorization_url'],
+        'access_code': data['access_code'],
+        'reference': data['reference']
+    }
+@app.get('/api/store/paystack/callback')
+def paystack_callback(reference: str):
+    secret_key = os.getenv('PAYSTACK_SECRET_KEY')
+
+    if not secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail='Paystack is not configured.'
+        )
+
+    headers = {
+        'Authorization': f'Bearer {secret_key}'
+    }
+
+    try:
+        response = httpx.get(
+            f'https://api.paystack.co/transaction/verify/{reference}',
+            headers=headers,
+            timeout=20.0
+        )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=502,
+            detail='Could not verify payment with Paystack.'
+        )
+
+    try:
+        result = response.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=502,
+            detail='Invalid response received from Paystack.'
+        )
+
+    if response.status_code >= 400 or not result.get('status'):
+        raise HTTPException(
+            status_code=400,
+            detail='Paystack payment verification failed.'
+        )
+
+    data = result.get('data', {})
+
+    if data.get('status') != 'success':
+        raise HTTPException(
+            status_code=400,
+            detail='Payment was not successful.'
+        )
+
+    c = conn()
+
+    order = c.execute(
+        'SELECT * FROM orders WHERE order_no=?',
+        (reference,)
+    ).fetchone()
+
+    if not order:
+        c.close()
+        raise HTTPException(
+            status_code=404,
+            detail='Order not found.'
+        )
+
+    if order['payment_status'] == 'PAID':
+        c.close()
+        return {
+            'ok': True,
+            'status': 'PAID',
+            'order_no': order['order_no']
+        }
+
+    expected_amount = int(round(float(order['total']) * 100))
+
+    if int(data.get('amount', 0)) != expected_amount:
+        c.close()
+        raise HTTPException(
+            status_code=400,
+            detail='Payment amount does not match this order.'
+        )
+
+    if data.get('reference') != order['order_no']:
+        c.close()
+        raise HTTPException(
+            status_code=400,
+            detail='Payment reference does not match this order.'
+        )
+
+    items = c.execute(
+        'SELECT * FROM order_items WHERE order_id=?',
+        (order['id'],)
+    ).fetchall()
+
+    for item in items:
+        variant = c.execute(
+            'SELECT * FROM variants WHERE id=?',
+            (item['variant_id'],)
+        ).fetchone()
+
+        if not variant or variant['qty'] < item['qty']:
+            c.close()
+            raise HTTPException(
+                status_code=409,
+                detail='Stock changed before payment confirmation.'
+            )
+
+    for item in items:
+        c.execute(
+            '''
+            UPDATE variants
+            SET qty=qty-?,
+                reserved_qty=GREATEST(reserved_qty-?,0)
+            WHERE id=?
+            ''',
+            (item['qty'], item['qty'], item['variant_id'])
+        )
+
+        c.execute(
+            '''
+            INSERT INTO stock_movements(
+                variant_id,
+                movement_type,
+                qty,
+                reason,
+                reference,
+                user_id,
+                created_at
+            )
+            VALUES(?,?,?,?,?,?,?)
+            ''',
+            (
+                item['variant_id'],
+                'OUT',
+                item['qty'],
+                'Online Paystack order',
+                order['order_no'],
+                None,
+                now()
+            )
+        )
+
+    c.execute(
+        '''
+        UPDATE orders
+        SET payment_status='PAID',
+            order_status='PAID_PROCESSING',
+            paid_at=?
+        WHERE id=?
+        ''',
+        (now(), order['id'])
+    )
+
+    c.commit()
+    c.close()
+
+    return {
+        'ok': True,
+        'status': 'PAID',
+        'order_no': order['order_no']
     }
 @app.post('/api/store/orders/{order_id}/demo-pay')
 def demo_pay(order_id:int, token:str):
