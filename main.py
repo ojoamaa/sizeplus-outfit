@@ -104,7 +104,16 @@ def create_store_order(d:StoreOrder):
     cur=c.execute('''INSERT INTO orders(order_no,access_token,customer_name,email,phone,address,city,state,delivery_method,delivery_fee,subtotal,total,payment_method,payment_status,order_status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(order_no,access,d.customer_name,d.email,d.phone,d.address,d.city,d.state,d.delivery_method,fee,subtotal,total,d.payment_method,'AWAITING_PAYMENT','AWAITING_PAYMENT',now())); oid=cur.lastrowid
     for r,line,lt in prepared:
         c.execute('INSERT INTO order_items(order_id,variant_id,product_name,size,color,qty,unit_price,line_total) VALUES(?,?,?,?,?,?,?,?)',(oid,r['id'],r['name'],r['size'],r['color'],line.qty,r['selling_price'],lt)); c.execute('UPDATE variants SET reserved_qty=reserved_qty+? WHERE id=?',(line.qty,r['id']))
-    c.commit(); c.close(); return {'order_id':oid,'order_no':order_no,'token':access,'total':total}
+    c.commit()
+    c.close()
+    return {
+        'order_id': oid,
+        'order_no': order_no,
+        'token': access,
+        'subtotal': subtotal,
+        'delivery_fee': fee,
+        'total': total
+    }
 @app.post('/api/store/orders/{order_id}/demo-pay')
 def demo_pay(order_id:int, token:str):
     c=conn(); o=c.execute('SELECT * FROM orders WHERE id=? AND access_token=?',(order_id,token)).fetchone()

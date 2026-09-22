@@ -25,7 +25,7 @@
 </head>
 <body><div class="client-review-banner"><strong>CLIENT REVIEW PROTOTYPE</strong> <span>— For approval and testing only. No real online payment is processed in this version.</span></div>
 <div class="top"><div>📍 Shop No. GB 19, Banex Vom (Plaza), Wuse 2, Abuja &nbsp; · &nbsp; ☎ <a href="tel:+2348033117766">08033117766</a> &nbsp; · &nbsp; ✉ <a href="mailto:sizeplus9@gmail.com">sizeplus9@gmail.com</a></div><div class="right">Nationwide Delivery &nbsp; | &nbsp; Fashion for Every Curve</div></div>
-<header class="nav"><div><div class="brand">Sizeplus Outfit</div><div class="tagline">Fashion that fits beautifully</div></div><nav><a href="#home">Home</a><a href="#shop">Shop</a><a href="#new">New Arrivals</a><a href="#collections">Collections</a><a href="#about">About</a><a href="#contact">Contact</a><a href="/staff">Staff Login</a></nav><div class="actions"><input class="searchtop" placeholder="Search products…" oninput="syncSearch(this.value)"><button class="menuBtn" onclick="toggleMenu()">Menu</button><button class="ghost" onclick="openCart()">Bag (<span id="count">0</span>)</button></div></header>
+<header class="nav"><div><div class="brand">Sizeplus Outfit</div><div class="tagline">Fashion that fits beautifully</div></div><nav><a href="#home">Home</a><a href="#shop">Shop</a><a href="#new">New Arrivals</a><a href="#collections">Collections</a><a href="#about">About</a><a href="#contact">Contact</a><a href="/staff">Staff Login</a></nav><div class="actions"><input class="searchtop" placeholder="Search products…" oninput="syncSearch(this.value)"><button class="menuBtn" onclick="toggleMenu()">Menu</button><button class="ghost" onclick="openCart()">Cart (<span id="count">0</span>)</button></div></header>
 <div id="mobileMenu" class="mobileMenu"><a href="#home" onclick="toggleMenu(false)">Home</a><a href="#shop" onclick="toggleMenu(false)">Shop</a><a href="#new" onclick="toggleMenu(false)">New Arrivals</a><a href="#collections" onclick="toggleMenu(false)">Collections</a><a href="#about" onclick="toggleMenu(false)">About</a><a href="#contact" onclick="toggleMenu(false)">Contact</a><a href="/staff">Staff Login</a></div>
 <section class="hero" id="home"><div class="hero-copy"><div class="eyebrow">Curves · Confidence · Style</div><h1>Fashion that fits beautifully.</h1><p>Chic, classy and comfortable pieces curated for women who want style without compromise. Discover selections sourced largely from Turkey and surrounding markets.</p><div class="hero-actions"><a href="#new"><button class="btn">Shop New Arrivals →</button></a><a href="#collections"><button class="ghost">Explore Collections</button></a></div></div><div class="hero-art"><img src="/static/assets/sizeplus-outfit-hero.jpg" alt="Sizeplus Outfit fashion model"></div></section>
 <section class="servicebar"><div class="service"><b>Nationwide Delivery</b><span>Abuja pickup and delivery options</span></div><div class="service"><b>Shared Live Stock</b><span>Online and boutique inventory synchronized</span></div><div class="service"><b>Personalized Support</b><span>Chat or call 08033117766</span></div><div class="service"><b>Curated Collections</b><span>Turkey & surrounding markets</span></div></section>
@@ -37,7 +37,13 @@
 <section class="section" id="contact"><div class="section-head"><div><div class="eyebrow">VISIT OR REACH US</div><h2>Contact Sizeplus Outfit</h2></div></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))"><div class="card"><div class="card-body"><h3>Visit the boutique</h3><p class="muted">Shop No. GB 19, Banex Vom (Plaza), Wuse 2, Abuja.</p></div></div><div class="card"><div class="card-body"><h3>Call / WhatsApp</h3><p><a href="tel:+2348033117766">08033117766</a></p><p><a href="https://wa.me/2348033117766" target="_blank">Chat on WhatsApp</a></p></div></div><div class="card"><div class="card-body"><h3>Email</h3><p><a href="mailto:sizeplus9@gmail.com">sizeplus9@gmail.com</a></p></div></div><div class="card"><div class="card-body"><h3>Staff Access</h3><p class="muted">Owner and Sales Representatives can access boutique operations here.</p><p><a href="/staff">Open Staff Login →</a></p></div></div></div></section>
 <footer class="footer"><div class="brandBlock"><div class="brand">Sizeplus Outfit</div><p class="muted">Fashion that fits beautifully.</p><p class="small muted">Online and boutique stock are synchronized. Production Paystack integration will replace the current demo confirmation flow in the production-ready phase.</p></div><div><b>Visit & Contact</b><p>Shop No. GB 19, Banex Vom (Plaza), Wuse 2, Abuja.</p><p><a href="tel:+2348033117766">08033117766</a><br><a href="mailto:sizeplus9@gmail.com">sizeplus9@gmail.com</a></p></div><div><b>Quick Links</b><p><a href="#new">New Arrivals</a><br><a href="#shop">Shop</a><br><a href="#collections">Collections</a><br><a href="#about">About</a><br><a href="#contact">Contact</a><br><a href="/staff">Staff Login</a></p></div></footer>
 <div id="productModal" class="modal" onclick="if(event.target===this)closeProduct()"><div class="modalbox"><div class="modalmedia"><img id="modalImage" src="" alt="Product image"></div><div class="modalcopy"><button class="ghost" style="float:right" onclick="closeProduct()">Close</button><div id="modalBadge" class="eyebrow"></div><h2 id="modalName" style="font-family:Georgia;font-size:36px;margin:12px 0"></h2><div id="modalPrice" class="price" style="font-size:22px"></div><p id="modalDesc" class="muted"></p><label class="small muted">Select size / colour</label><select id="modalVariant" style="width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;margin:8px 0 14px"></select><button class="add" onclick="addFromModal()">Add to bag</button><p class="small muted" style="margin-top:16px">Need help choosing a size? <a href="https://wa.me/2348033117766?text=Hello%20Sizeplus%20Outfit%2C%20I%20need%20help%20with%20a%20product." target="_blank">Chat with Sizeplus Outfit</a>.</p></div></div></div>
-<div id="overlay" class="overlay" onclick="closeCart()"></div><aside id="cart" class="cart"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-family:Georgia">Your Bag</h2><button class="ghost" onclick="closeCart()">Close</button></div><div id="cartItems"></div><div id="cartTotals"></div><div id="checkout" class="checkout hidden"><h3>Checkout</h3><input id="name" placeholder="Full name"><input id="phone" placeholder="Phone number"><input id="email" placeholder="Email (optional)"><input id="address" placeholder="Delivery address"><div class="two"><input id="city" value="Abuja" placeholder="City"><input id="state" value="FCT" placeholder="State"></div><select id="delivery"><option>Delivery</option><option>Pickup</option></select><select id="payment"><option>Paystack</option><option>Bank Transfer</option></select><button class="add" onclick="placeOrder()">Proceed to payment</button><div id="orderMsg"></div></div></aside>
+<div id="overlay" class="overlay" onclick="closeCart()"></div><aside id="cart" class="cart"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-family:Georgia">Your Cart</h2><button class="ghost" onclick="closeCart()">Close</button></div><div id="cartItems"></div><div id="cartTotals"></div><div id="checkout" class="checkout hidden"><h3>Checkout</h3><input id="name" placeholder="Full name"><input id="phone"
+       type="tel"
+       placeholder="Phone number"
+       maxlength="11"
+       inputmode="numeric"
+       pattern="[0-9]{11}"
+       oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"><input id="email" placeholder="Email (optional)"><input id="address" placeholder="Delivery address"><div class="two"><input id="city" value="Abuja" placeholder="City"><input id="state" value="FCT" placeholder="State"></div><select id="delivery"><option>Delivery</option><option>Pickup</option></select><select id="payment"><option>Paystack</option><option>Bank Transfer</option></select><button class="add" onclick="placeOrder()">Proceed to payment</button><div id="orderMsg"></div></div></aside>
 <script>
 let catalog=[],cart=[],activeCategory='All',selectedProduct=null;const money=n=>'₦'+Number(n).toLocaleString();
 async function getProducts(){catalog=await (await fetch('/api/store/products')).json();renderFilters();renderCategories();renderNewArrivals();renderProducts(catalog)}
@@ -115,9 +121,107 @@ function add(pid,ctx){let p=catalog.find(x=>x.id===pid),sel=document.getElementB
 function addVariantToCart(p,v){if(!p||!v||v.available<1)return alert('This variant is sold out.');let e=cart.find(x=>x.variant_id===v.variant_id);if(e){if(e.qty>=v.available)return alert('No more units available.');e.qty++}else cart.push({variant_id:v.variant_id,qty:1,name:p.name,size:v.size,color:v.color,price:p.selling_price});renderCart()}
 function toggleMenu(force){let open=typeof force==='boolean'?force:!mobileMenu.classList.contains('open');mobileMenu.classList.toggle('open',open)}
 function renderCart(){count.textContent=cart.reduce((a,x)=>a+x.qty,0);cartItems.innerHTML=cart.length?cart.map((x,i)=>`<div class="cartline"><div><b>${x.name}</b><div class="small muted">${x.size} · ${x.color} · Qty ${x.qty}</div></div><div><b>${money(x.qty*x.price)}</b><br><button class="ghost small" onclick="cart.splice(${i},1);renderCart()">Remove</button></div></div>`).join(''):'<p class="muted">Your bag is empty.</p>';let sub=cart.reduce((a,x)=>a+x.qty*x.price,0);cartTotals.innerHTML=cart.length?`<div style="display:flex;justify-content:space-between;padding:16px 0"><b>Subtotal</b><b>${money(sub)}</b></div><button class="add" onclick="checkout.classList.remove('hidden')">Checkout</button>`:''}
-function openCart(){cart.classList.add('open');overlay.classList.add('on')}function closeCart(){cart.classList.remove('open');overlay.classList.remove('on')}
-async function placeOrder(){if(!cart.length)return;if(!name.value||!phone.value||(!address.value&&delivery.value!=='Pickup'))return orderMsg.innerHTML='<div class="notice">Name, phone and delivery address are required for delivery orders.</div>';let payload={customer_name:name.value,email:email.value,phone:phone.value,address:address.value||'Boutique pickup',city:city.value,state:state.value,delivery_method:delivery.value,payment_method:payment.value,items:cart.map(x=>({variant_id:x.variant_id,qty:x.qty}))};let r=await fetch('/api/store/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});let d=await r.json();if(!r.ok)return orderMsg.innerHTML='<div class="notice">'+(d.detail||'Order failed')+'</div>';orderMsg.innerHTML=`<div class="orderbox"><b>Order ${d.order_no}</b><p>Subtotal: ${money(d.subtotal||0)}<br>Delivery: ${money(d.delivery_fee||0)}<br><b>Total: ${money(d.total)}</b></p><p class="small">Your items are reserved pending payment.</p><button class="add" onclick="demoPay(${d.order_id},'${d.token||d.access_token}',this)">Demo: Confirm Paystack Payment</button></div>`}
-async function demoPay(id,t,b){b.disabled=true;b.textContent='Confirming…';let r=await fetch(`/api/store/orders/${id}/demo-pay?token=${encodeURIComponent(t)}`,{method:'POST'});let d=await r.json();if(!r.ok){b.disabled=false;b.textContent='Try again';return alert(d.detail)}orderMsg.innerHTML='<div class="notice"><b>Payment confirmed.</b><br>Your order is now being processed for delivery.</div>';cart=[];renderCart();await getProducts()}
+function openCart(){
+    document.getElementById('cart').classList.add('open');
+    document.getElementById('overlay').classList.add('on');
+}
+
+function closeCart(){
+    document.getElementById('cart').classList.remove('open');
+    document.getElementById('overlay').classList.remove('on');
+}
+async function placeOrder() {
+    const nameEl = document.getElementById('name');
+    const phoneEl = document.getElementById('phone');
+    const emailEl = document.getElementById('email');
+    const addressEl = document.getElementById('address');
+    const cityEl = document.getElementById('city');
+    const stateEl = document.getElementById('state');
+    const deliveryEl = document.getElementById('delivery');
+    const paymentEl = document.getElementById('payment');
+    const orderMsgEl = document.getElementById('orderMsg');
+
+    if (!cart.length) return;
+
+    const customerName = nameEl.value.trim();
+    const customerPhone = phoneEl.value.trim();
+    if (!/^\d{11}$/.test(customerPhone)) {
+    orderMsgEl.innerHTML =
+        '<div class="notice">Please enter a valid 11-digit phone number.</div>';
+    phoneEl.focus();
+    return;
+}
+    const customerEmail = emailEl.value.trim();
+    const customerAddress = addressEl.value.trim();
+    const deliveryMethod = deliveryEl.value;
+
+    if (
+        !customerName ||
+        !customerPhone ||
+        (deliveryMethod !== 'Pickup' && !customerAddress)
+    ) {
+        orderMsgEl.innerHTML =
+            '<div class="notice">Name, phone and delivery address are required for delivery orders.</div>';
+        return;
+    }
+
+    const payload = {
+        customer_name: customerName,
+        email: customerEmail,
+        phone: customerPhone,
+        address: customerAddress || 'Boutique pickup',
+        city: cityEl.value.trim(),
+        state: stateEl.value.trim(),
+        delivery_method: deliveryMethod,
+        payment_method: paymentEl.value,
+        items: cart.map(x => ({
+            variant_id: x.variant_id,
+            qty: x.qty
+        }))
+    };
+
+    const r = await fetch('/api/store/orders', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const d = await r.json();
+
+    if (!r.ok) {
+        orderMsgEl.innerHTML =
+            '<div class="notice">' + (d.detail || 'Order failed') + '</div>';
+        return;
+    }
+
+    orderMsgEl.innerHTML = `
+        <div class="orderbox">
+            <b>Order ${d.order_no}</b>
+            <p>
+                Subtotal: ${money(d.subtotal || 0)}<br>
+                Delivery: ${money(d.delivery_fee || 0)}<br>
+                <b>Total: ${money(d.total)}</b>
+            </p>
+            <p class="small">Your items are reserved pending payment.</p>
+            <button class="add"
+                onclick="demoPay(${d.order_id}, '${d.token || d.access_token}', this)">
+                Demo: Confirm Paystack Payment
+            </button>
+        </div>`;
+   setTimeout(() => {
+    orderMsgEl.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
+}, 100);
+}
+async function demoPay(id,t,b){b.disabled=true;b.textContent='Confirming…';let r=await fetch(`/api/store/orders/${id}/demo-pay?token=${encodeURIComponent(t)}`,{method:'POST'});let d=await r.json();if(!r.ok){b.disabled=false;b.textContent='Try again';return alert(
+    typeof d.detail === 'string'
+        ? d.detail
+        : (d.detail?.message || d.detail?.detail || 'Payment confirmation failed.')
+)}orderMsg.innerHTML='<div class="notice"><b>Payment confirmed.</b><br>Your order is now being processed for delivery.</div>';cart=[];renderCart();await getProducts()}
 getProducts();renderCart();
 </script>
 </body></html>

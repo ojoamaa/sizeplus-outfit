@@ -51,7 +51,7 @@ class PostgresConnection:
         has_returning = " RETURNING " in translated_sql.upper()
 
         if is_insert and not has_returning:
-            table_name = translated_sql.lstrip().split()[2].strip('"').lower()
+            table_name = translated_sql.lstrip().split()[2].split("(")[0].strip('"').lower()
 
             identity_tables = {
                 "users",
@@ -77,7 +77,7 @@ class PostgresConnection:
 
         wrapped = PostgresCursor(cur)
 
-        if is_insert and " RETURNING id" in translated_sql.upper():
+        if is_insert and " RETURNING ID" in translated_sql.upper():
             row = cur.fetchone()
             if row:
                 wrapped.lastrowid = row["id"]
