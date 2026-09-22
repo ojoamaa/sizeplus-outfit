@@ -90,6 +90,77 @@ def me(u=Depends(current_user)): return {k:u[k] for k in ('id','name','email','r
 @app.get('/api/store/products')
 def store_products():
     c=conn(); d=grouped_store_products(c); c.close(); return d
+# Nigeria-wide delivery pricing.
+# These are configurable application rates and can later be replaced
+# by live quotes from an approved logistics provider.
+DELIVERY_RATES = {
+    # FCT / local
+    "FCT": 2500,
+
+    # North Central
+    "Benue": 4500,
+    "Kogi": 4000,
+    "Kwara": 5000,
+    "Nasarawa": 3500,
+    "Niger": 4000,
+    "Plateau": 4500,
+
+    # North West
+    "Jigawa": 5500,
+    "Kaduna": 4500,
+    "Kano": 5500,
+    "Katsina": 6000,
+    "Kebbi": 6500,
+    "Sokoto": 6500,
+    "Zamfara": 6000,
+
+    # North East
+    "Adamawa": 6500,
+    "Bauchi": 5500,
+    "Borno": 7000,
+    "Gombe": 6000,
+    "Taraba": 6500,
+    "Yobe": 7000,
+
+    # South West
+    "Ekiti": 5500,
+    "Lagos": 5500,
+    "Ogun": 5500,
+    "Ondo": 5500,
+    "Osun": 5500,
+    "Oyo": 5500,
+
+    # South East
+    "Abia": 6000,
+    "Anambra": 5500,
+    "Ebonyi": 5500,
+    "Enugu": 5500,
+    "Imo": 6000,
+
+    # South South
+    "Akwa Ibom": 6500,
+    "Bayelsa": 6500,
+    "Cross River": 7000,
+    "Delta": 6000,
+    "Edo": 5500,
+    "Rivers": 6500,
+}
+
+
+def calculate_delivery_fee(state, delivery_method):
+    if delivery_method.strip().lower() == "pickup":
+        return 0
+
+    state_name = state.strip()
+
+    for configured_state, fee in DELIVERY_RATES.items():
+        if configured_state.lower() == state_name.lower():
+            return fee
+
+    raise HTTPException(
+        status_code=400,
+        detail="Please select a valid Nigerian delivery state."
+    )
 @app.post('/api/store/orders')
 def create_store_order(d:StoreOrder):
     c=conn(); subtotal=0; prepared=[]
@@ -99,7 +170,7 @@ def create_store_order(d:StoreOrder):
         av=r['qty']-r['reserved_qty']
         if av<line.qty: c.close(); raise HTTPException(400,f"Only {av} of {r['name']} available")
         lt=r['selling_price']*line.qty; subtotal+=lt; prepared.append((r,line,lt))
-    fee=0 if d.delivery_method.lower()=='pickup' else (2500 if d.city.lower()=='abuja' else 5000); total=subtotal+fee
+    fee=calculate_delivery_fee(d.state,d.delivery_method); total=subtotal+fee
     order_no='SP-ON-'+datetime.utcnow().strftime('%y%m%d%H%M%S%f')[-12:]; access=secrets.token_urlsafe(14)
     cur=c.execute('''INSERT INTO orders(order_no,access_token,customer_name,email,phone,address,city,state,delivery_method,delivery_fee,subtotal,total,payment_method,payment_status,order_status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(order_no,access,d.customer_name,d.email,d.phone,d.address,d.city,d.state,d.delivery_method,fee,subtotal,total,d.payment_method,'AWAITING_PAYMENT','AWAITING_PAYMENT',now())); oid=cur.lastrowid
     for r,line,lt in prepared:

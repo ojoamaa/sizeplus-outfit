@@ -43,7 +43,46 @@
        maxlength="11"
        inputmode="numeric"
        pattern="[0-9]{11}"
-       oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"><input id="email" placeholder="Email (optional)"><input id="address" placeholder="Delivery address"><div class="two"><input id="city" value="Abuja" placeholder="City"><input id="state" value="FCT" placeholder="State"></div><select id="delivery"><option>Delivery</option><option>Pickup</option></select><select id="payment"><option>Paystack</option><option>Bank Transfer</option></select><button class="add" onclick="placeOrder()">Proceed to payment</button><div id="orderMsg"></div></div></aside>
+       oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"><input id="email" placeholder="Email (optional)"><input id="address" placeholder="Delivery address"><div class="two"><input id="city" value="Abuja" placeholder="City"><select id="state" required>
+<option value="">Select State</option>
+<option value="Abia">Abia</option>
+<option value="Adamawa">Adamawa</option>
+<option value="Akwa Ibom">Akwa Ibom</option>
+<option value="Anambra">Anambra</option>
+<option value="Bauchi">Bauchi</option>
+<option value="Bayelsa">Bayelsa</option>
+<option value="Benue">Benue</option>
+<option value="Borno">Borno</option>
+<option value="Cross River">Cross River</option>
+<option value="Delta">Delta</option>
+<option value="Ebonyi">Ebonyi</option>
+<option value="Edo">Edo</option>
+<option value="Ekiti">Ekiti</option>
+<option value="Enugu">Enugu</option>
+<option value="FCT" selected>FCT - Abuja</option>
+<option value="Gombe">Gombe</option>
+<option value="Imo">Imo</option>
+<option value="Jigawa">Jigawa</option>
+<option value="Kaduna">Kaduna</option>
+<option value="Kano">Kano</option>
+<option value="Katsina">Katsina</option>
+<option value="Kebbi">Kebbi</option>
+<option value="Kogi">Kogi</option>
+<option value="Kwara">Kwara</option>
+<option value="Lagos">Lagos</option>
+<option value="Nasarawa">Nasarawa</option>
+<option value="Niger">Niger</option>
+<option value="Ogun">Ogun</option>
+<option value="Ondo">Ondo</option>
+<option value="Osun">Osun</option>
+<option value="Oyo">Oyo</option>
+<option value="Plateau">Plateau</option>
+<option value="Rivers">Rivers</option>
+<option value="Sokoto">Sokoto</option>
+<option value="Taraba">Taraba</option>
+<option value="Yobe">Yobe</option>
+<option value="Zamfara">Zamfara</option>
+</select></div><select id="delivery"><option>Delivery</option><option>Pickup</option></select><select id="payment"><option>Paystack</option><option>Bank Transfer</option></select><button class="add" onclick="placeOrder()">Proceed to payment</button><div id="orderMsg"></div></div></aside>
 <script>
 let catalog=[],cart=[],activeCategory='All',selectedProduct=null;const money=n=>'₦'+Number(n).toLocaleString();
 async function getProducts(){catalog=await (await fetch('/api/store/products')).json();renderFilters();renderCategories();renderNewArrivals();renderProducts(catalog)}
@@ -196,32 +235,90 @@ async function placeOrder() {
         return;
     }
 
+       const fulfilmentMessage =
+        deliveryMethod === 'Pickup'
+            ? 'Store Pickup — Sizeplus Outfit, Wuse 2, Abuja'
+            : `Delivery to ${cityEl.value.trim()}, ${stateEl.value.trim()}`;
+
     orderMsgEl.innerHTML = `
         <div class="orderbox">
             <b>Order ${d.order_no}</b>
+
+            <p class="small">
+                <b>${fulfilmentMessage}</b>
+            </p>
+
             <p>
                 Subtotal: ${money(d.subtotal || 0)}<br>
-                Delivery: ${money(d.delivery_fee || 0)}<br>
+                ${deliveryMethod === 'Pickup' ? 'Pickup fee' : 'Delivery'}:
+                ${money(d.delivery_fee || 0)}<br>
                 <b>Total: ${money(d.total)}</b>
             </p>
-            <p class="small">Your items are reserved pending payment.</p>
+
+            <p class="small">
+                ${deliveryMethod === 'Pickup'
+                    ? 'Your items are reserved pending payment and collection at the boutique.'
+                    : 'Your items are reserved pending payment and delivery.'}
+            </p>
+
             <button class="add"
-                onclick="demoPay(${d.order_id}, '${d.token || d.access_token}', this)">
+                onclick="demoPay(
+                    ${d.order_id},
+                    '${d.token || d.access_token}',
+                    this,
+                    '${deliveryMethod}'
+                )">
                 Demo: Confirm Paystack Payment
             </button>
         </div>`;
-   setTimeout(() => {
-    orderMsgEl.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-    });
-}, 100);
+
+    setTimeout(() => {
+        orderMsgEl.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    }, 100);
 }
-async function demoPay(id,t,b){b.disabled=true;b.textContent='Confirming…';let r=await fetch(`/api/store/orders/${id}/demo-pay?token=${encodeURIComponent(t)}`,{method:'POST'});let d=await r.json();if(!r.ok){b.disabled=false;b.textContent='Try again';return alert(
-    typeof d.detail === 'string'
-        ? d.detail
-        : (d.detail?.message || d.detail?.detail || 'Payment confirmation failed.')
-)}orderMsg.innerHTML='<div class="notice"><b>Payment confirmed.</b><br>Your order is now being processed for delivery.</div>';cart=[];renderCart();await getProducts()}
-getProducts();renderCart();
+
+async function demoPay(id, token, button, deliveryMethod) {
+    button.disabled = true;
+    button.textContent = 'Confirming...';
+
+    const response = await fetch(
+        `/api/store/orders/${id}/demo-pay?token=${encodeURIComponent(token)}`,
+        { method: 'POST' }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        button.disabled = false;
+        button.textContent = 'Try again';
+
+        return alert(
+            typeof data.detail === 'string'
+                ? data.detail
+                : (
+                    data.detail?.message ||
+                    data.detail?.detail ||
+                    'Payment confirmation failed.'
+                )
+        );
+    }
+
+    const successMessage =
+        deliveryMethod === 'Pickup'
+            ? 'Payment confirmed.<br>Your order is ready for processing for pickup at Sizeplus Outfit, Wuse 2, Abuja.'
+            : 'Payment confirmed.<br>Your order is now being processed for delivery.';
+
+    orderMsg.innerHTML =
+        `<div class="notice"><b>${successMessage}</b></div>`;
+
+    cart = [];
+    renderCart();
+    await getProducts();
+}
+getProducts();
+renderCart();
 </script>
 </body></html>
