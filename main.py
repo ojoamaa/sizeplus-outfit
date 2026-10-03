@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, timedelta
-import sqlite3, os, hashlib, secrets, shutil
+import sqlite3, os, hashlib, hmac, secrets, shutil
 import bcrypt
 from database import conn, DatabaseIntegrityError
 import cloudinary
@@ -400,8 +400,8 @@ def initialize_paystack(order_id: int, token: str):
         'access_code': data['access_code'],
         'reference': data['reference']
     }
-@app.get('/api/store/paystack/callback')
-def paystack_callback(reference: str):
+
+def verify_paystack_transaction(reference: str):
     secret_key = os.getenv('PAYSTACK_SECRET_KEY')
 
     if not secret_key:
@@ -448,6 +448,9 @@ def paystack_callback(reference: str):
             detail='Payment was not successful.'
         )
 
+    return data
+
+def finalize_paystack_payment(reference: str, data: dict):
     c = conn()
 
     order = c.execute(
@@ -462,6 +465,7 @@ def paystack_callback(reference: str):
             detail='Order not found.'
         )
 
+    # Idempotency: never process an already-paid order twice.
     if order['payment_status'] == 'PAID':
         c.close()
         return {
@@ -558,6 +562,64 @@ def paystack_callback(reference: str):
         'status': 'PAID',
         'order_no': order['order_no']
     }
+
+@app.get('/api/store/paystack/callback')
+def paystack_callback(reference: str):
+    data = verify_paystack_transaction(reference)
+    return finalize_paystack_payment(reference, data)
+
+@app.post('/api/store/paystack/webhook')
+async def paystack_webhook(request: Request):
+    secret_key = os.getenv('PAYSTACK_SECRET_KEY')
+
+    if not secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail='Paystack is not configured.'
+        )
+
+    raw_body = await request.body()
+    signature = request.headers.get('x-paystack-signature', '')
+
+    expected_signature = hmac.new(
+        secret_key.encode('utf-8'),
+        raw_body,
+        hashlib.sha512
+    ).hexdigest()
+
+    if not hmac.compare_digest(signature, expected_signature):
+        raise HTTPException(
+            status_code=401,
+            detail='Invalid Paystack signature.'
+        )
+
+    try:
+        event = await request.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail='Invalid webhook payload.'
+        )
+
+    # Other Paystack events require no order action.
+    if event.get('event') != 'charge.success':
+        return {'ok': True}
+
+    data = event.get('data', {})
+    reference = data.get('reference')
+
+    if not reference:
+        raise HTTPException(
+            status_code=400,
+            detail='Missing payment reference.'
+        )
+
+    # Never trust the webhook payload alone.
+    # Re-verify the transaction directly with Paystack.
+    verified_data = verify_paystack_transaction(reference)
+
+    return finalize_paystack_payment(reference, verified_data)
+
 #@app.post('/api/store/orders/{order_id}/demo-pay')
 def demo_pay(order_id:int, token:str):
     c=conn(); o=c.execute('SELECT * FROM orders WHERE id=? AND access_token=?',(order_id,token)).fetchone()
