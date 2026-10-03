@@ -19,7 +19,24 @@
 </div></div>
 <script>
 let token=localStorage.spToken||'',user=null,products=[],poscart=[];const money=n=>'₦'+Number(n||0).toLocaleString();const api=async(p,o={})=>{o.headers={...(o.headers||{}),...(token?{Authorization:'Bearer '+token}:{})};if(o.body&&!(o.body instanceof FormData))o.headers['Content-Type']='application/json';let r=await fetch('/api'+p,o);let d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.detail||'Request failed');return d};
-async function signin(){try{let d=await api('/login',{method:'POST',body:JSON.stringify({email:em.value,password:pw.value})});token=d.token;localStorage.spToken=token;boot()}catch(e){loginmsg.innerHTML='<p class="notice">'+e.message+'</p>'}}function logout(){localStorage.removeItem('spToken');location.reload()}
+async function signin(){try{let d=await api('/login',{method:'POST',body:JSON.stringify({email:em.value,password:pw.value})});token=d.token;localStorage.spToken=token;boot()}catch(e){loginmsg.innerHTML='<p class="notice">'+e.message+'</p>'}}async function logout(){
+    try{
+        if(token){
+            await fetch('/api/logout',{
+                method:'POST',
+                headers:{
+                    'Authorization':'Bearer '+token
+                }
+            });
+        }
+    }catch(e){
+        console.warn('Server logout failed; clearing local session.');
+    }finally{
+        localStorage.removeItem('spToken');
+        token='';
+        location.reload();
+    }
+}
 function gotoPage(id){let b=[...document.querySelectorAll('.tab')].find(x=>x.textContent.toLowerCase().includes(id==='productsPage'?'products':id));show(id,b)}
 async function boot(){try{user=await api('/me');loginBox.classList.add('hidden');app.classList.remove('hidden');who.textContent=user.name+' · '+user.role.replace('_',' ');if(user.role!=='owner')document.querySelectorAll('.ownerOnly').forEach(x=>x.classList.add('hidden'));await refreshAll()}catch(e){localStorage.removeItem('spToken')}}
 async function refreshAll(){await Promise.all([loadDash(),loadProducts(),loadOrders(),loadCustomers(),loadSales(),loadMovements()]);if(user.role==='owner')await Promise.all([loadOwner(),loadStaff()])}

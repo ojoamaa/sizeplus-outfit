@@ -4,8 +4,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3, os, hashlib, secrets, shutil
+import bcrypt
 from database import conn, DatabaseIntegrityError
 import cloudinary
 import cloudinary.uploader
@@ -21,10 +22,43 @@ cloudinary.config(
 BASE=os.path.dirname(__file__); DB=os.path.join(BASE,'sizeplus.db'); UPLOADS=os.path.join(BASE,'uploads','products')
 os.makedirs(UPLOADS,exist_ok=True)
 app=FastAPI(title='Sizeplus Outfit Retail Management + E-commerce',version='0.7.0-development')
-app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
+ALLOWED_ORIGINS = [
+    "https://sizeplusoutfit.com",
+    "https://www.sizeplusoutfit.com",
+    "https://sizeplus-outfit.onrender.com",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 def now(): return datetime.utcnow().isoformat()
-def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
+def hash_pw(password: str) -> str:
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
+
+def verify_pw(password: str, stored_hash: str) -> bool:
+    # New production bcrypt hashes
+    if stored_hash.startswith("$2"):
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"),
+                stored_hash.encode("utf-8")
+            )
+        except ValueError:
+            return False
+
+    # Legacy SHA-256 hashes from V0.6/V0.7 development.
+    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+    return secrets.compare_digest(legacy_hash, stored_hash)
 def audit(c,user_id,action,entity,entity_id=None,detail=''):
     c.execute('INSERT INTO audit_logs(user_id,action,entity,entity_id,detail,created_at) VALUES(?,?,?,?,?,?)',(user_id,action,entity,str(entity_id or ''),detail,now()))
 
@@ -60,11 +94,48 @@ class StoreOrder(BaseModel): customer_name:str; email:str=''; phone:str; address
 class OrderStatus(BaseModel): status:str
 class StaffCreate(BaseModel): name:str; email:str; password:str; role:str='sales_rep'
 
-def current_user(authorization:Optional[str]=Header(default=None)):
-    if not authorization or not authorization.startswith('Bearer '): raise HTTPException(401,'Login required')
-    token=authorization.split(' ',1)[1]; c=conn(); r=c.execute('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1',(token,)).fetchone(); c.close()
-    if not r: raise HTTPException(401,'Invalid session')
-    return dict(r)
+SESSION_HOURS = 12
+
+def current_user(authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(401, 'Login required')
+
+    token = authorization.split(' ', 1)[1]
+    c = conn()
+
+    session = c.execute(
+        '''
+        SELECT s.created_at, u.*
+        FROM sessions s
+        JOIN users u ON u.id=s.user_id
+        WHERE s.token=? AND u.active=1
+        ''',
+        (token,)
+    ).fetchone()
+
+    if not session:
+        c.close()
+        raise HTTPException(401, 'Invalid session')
+
+    try:
+        created_at = datetime.fromisoformat(session['created_at'])
+    except (ValueError, TypeError):
+        c.execute('DELETE FROM sessions WHERE token=?', (token,))
+        c.commit()
+        c.close()
+        raise HTTPException(401, 'Invalid session')
+
+    if datetime.utcnow() > created_at + timedelta(hours=SESSION_HOURS):
+        c.execute('DELETE FROM sessions WHERE token=?', (token,))
+        c.commit()
+        c.close()
+        raise HTTPException(401, 'Session expired. Please sign in again.')
+
+    user = dict(session)
+    user.pop('created_at', None)
+
+    c.close()
+    return user
 def owner_only(u=Depends(current_user)):
     if u['role']!='owner': raise HTTPException(403,'Owner access required')
     return u
@@ -81,12 +152,70 @@ def grouped_store_products(c):
     return list(grouped.values())
 
 @app.post('/api/login')
-def login(d:Login):
-    c=conn(); u=c.execute('SELECT * FROM users WHERE lower(email)=lower(?) AND password_hash=? AND active=1',(d.email,hash_pw(d.password))).fetchone()
-    if not u: c.close(); raise HTTPException(401,'Invalid email or password')
-    token=secrets.token_urlsafe(24); c.execute('INSERT INTO sessions VALUES(?,?,?)',(token,u['id'],now())); audit(c,u['id'],'LOGIN','session'); c.commit(); c.close(); return {'token':token,'user':dict(u)}
+def login(d: Login):
+    c = conn()
+
+    u = c.execute(
+        'SELECT * FROM users WHERE lower(email)=lower(?) AND active=1',
+        (d.email,)
+    ).fetchone()
+
+    if not u or not verify_pw(d.password, u['password_hash']):
+        c.close()
+        raise HTTPException(401, 'Invalid email or password')
+
+    # Transparently migrate legacy SHA-256 password hashes to bcrypt.
+    if not u['password_hash'].startswith('$2'):
+        new_hash = hash_pw(d.password)
+        c.execute(
+            'UPDATE users SET password_hash=? WHERE id=?',
+            (new_hash, u['id'])
+        )
+
+    token = secrets.token_urlsafe(32)
+
+    c.execute(
+        'INSERT INTO sessions VALUES(?,?,?)',
+        (token, u['id'], now())
+    )
+
+    audit(c, u['id'], 'LOGIN', 'session')
+    c.commit()
+
+    # Never expose password_hash to the browser.
+    safe_user = {
+        'id': u['id'],
+        'name': u['name'],
+        'email': u['email'],
+        'role': u['role']
+    }
+
+    c.close()
+
+    return {
+        'token': token,
+        'user': safe_user
+    }
 @app.get('/api/me')
-def me(u=Depends(current_user)): return {k:u[k] for k in ('id','name','email','role')}
+def me(u=Depends(current_user)):
+    return {k: u[k] for k in ('id', 'name', 'email', 'role')}
+
+@app.post('/api/logout')
+def logout(
+    authorization: Optional[str] = Header(default=None),
+    u=Depends(current_user)
+):
+    token = authorization.split(' ', 1)[1]
+
+    c = conn()
+    c.execute(
+        'DELETE FROM sessions WHERE token=?',
+        (token,)
+    )
+    c.commit()
+    c.close()
+
+    return {'ok': True}
 
 @app.get('/api/store/products')
 def store_products():
@@ -429,7 +558,7 @@ def paystack_callback(reference: str):
         'status': 'PAID',
         'order_no': order['order_no']
     }
-@app.post('/api/store/orders/{order_id}/demo-pay')
+#@app.post('/api/store/orders/{order_id}/demo-pay')
 def demo_pay(order_id:int, token:str):
     c=conn(); o=c.execute('SELECT * FROM orders WHERE id=? AND access_token=?',(order_id,token)).fetchone()
     if not o: c.close(); raise HTTPException(404,'Order not found')
