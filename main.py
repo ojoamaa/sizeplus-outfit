@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -811,3 +811,22 @@ def admin(): return FileResponse(os.path.join(BASE,'static','admin.html'))
 
 @app.get('/staff')
 def staff_portal(): return FileResponse(os.path.join(BASE,'static','admin.html'))
+
+# Public customer policies (no authentication required).
+POLICY_DIR = os.path.join(BASE, 'static', 'policies')
+
+@app.get('/terms-of-service', include_in_schema=False)
+def terms_page():
+    return FileResponse(os.path.join(POLICY_DIR, 'terms-of-service.html'))
+
+@app.get('/privacy-policy', include_in_schema=False)
+def privacy_page():
+    return FileResponse(os.path.join(POLICY_DIR, 'privacy-policy.html'))
+
+@app.get('/refund-returns-cancellations', include_in_schema=False)
+def returns_page():
+    return FileResponse(os.path.join(POLICY_DIR, 'refund-returns-cancellations.html'))
+
+@app.get('/shipping-delivery', include_in_schema=False)
+def shipping_page():
+    return FileResponse(os.path.join(POLICY_DIR, 'shipping-delivery.html'))
