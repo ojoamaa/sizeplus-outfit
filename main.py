@@ -1,16 +1,17 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, timedelta
 import sqlite3, os, hashlib, hmac, secrets, shutil
 import bcrypt
-from database import conn, DatabaseIntegrityError
+from database import conn, DatabaseIntegrityError, database_backend
 import cloudinary
 import cloudinary.uploader
 import httpx
+import upgrade_features as uf
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -21,7 +22,7 @@ cloudinary.config(
 
 BASE=os.path.dirname(__file__); DB=os.path.join(BASE,'sizeplus.db'); UPLOADS=os.path.join(BASE,'uploads','products')
 os.makedirs(UPLOADS,exist_ok=True)
-app=FastAPI(title='Sizeplus Outfit Retail Management + E-commerce',version='0.7.0-development')
+app=FastAPI(title='Sizeplus Outfit Retail Management + E-commerce',version='1.0.0-rc3')
 ALLOWED_ORIGINS = [
     "https://sizeplusoutfit.com",
     "https://www.sizeplusoutfit.com",
@@ -78,6 +79,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,action TEXT,entity TEXT,entity_id TEXT,detail TEXT,created_at TEXT);
     '''); c.commit(); c.close()
 init_db()
+uf.initialize()
 
 class Login(BaseModel): email:str; password:str
 class ProductCreate(BaseModel):
@@ -90,8 +92,12 @@ class StockAdjust(BaseModel): variant_id:int; quantity_change:int; reason:str; r
 class CustomerCreate(BaseModel): name:str; phone:str=''; email:str=''; notes:str=''
 class SaleLine(BaseModel): variant_id:int; qty:int=Field(gt=0)
 class SaleCreate(BaseModel): customer_name:str='Guest Customer'; items:List[SaleLine]; discount:float=0; payment_method:str='POS'; payment_status:str='PAID'
-class StoreOrder(BaseModel): customer_name:str; email:str=''; phone:str; address:str; city:str='Abuja'; state:str='FCT'; delivery_method:str='Delivery'; payment_method:str='Paystack'; items:List[SaleLine]
+class StoreOrder(BaseModel): customer_name:str; email:str=''; phone:str; address:str; city:str='Abuja'; state:str='FCT'; delivery_method:str='Delivery'; payment_method:str='Paystack'; zone:str=''; items:List[SaleLine]
 class OrderStatus(BaseModel): status:str
+class DeliveryQuoteRequest(BaseModel):
+    state:str='FCT'; city:str=''; zone:str=''; delivery_method:str='Delivery'
+class DeliveryTariffInput(BaseModel):
+    state:str; city:str; zone:str; fee:float=Field(ge=0,le=1000000); active:bool=False
 class StaffCreate(BaseModel): name:str; email:str; password:str; role:str='sales_rep'
 
 SESSION_HOURS = 12
@@ -220,89 +226,55 @@ def logout(
 @app.get('/api/store/products')
 def store_products():
     c=conn(); d=grouped_store_products(c); c.close(); return d
-# Nigeria-wide delivery pricing.
-# These are configurable application rates and can later be replaced
-# by live quotes from an approved logistics provider.
-DELIVERY_RATES = {
-    # FCT / local
-    "FCT": 2500,
+# Configurable owner-managed delivery pricing. Unapproved destinations cannot be charged.
+@app.get('/api/store/delivery-zones')
+def public_delivery_zones():
+    return [{'state':r['state'],'city':r['city'],'zone':r['zone']} for r in uf.list_tariffs() if r['active']]
 
-    # North Central
-    "Benue": 4500,
-    "Kogi": 4000,
-    "Kwara": 5000,
-    "Nasarawa": 3500,
-    "Niger": 4000,
-    "Plateau": 4500,
+@app.post('/api/store/delivery-quote')
+def public_delivery_quote(d:DeliveryQuoteRequest):
+    return uf.quote(d.state,d.city,d.zone,d.delivery_method)
 
-    # North West
-    "Jigawa": 5500,
-    "Kaduna": 4500,
-    "Kano": 5500,
-    "Katsina": 6000,
-    "Kebbi": 6500,
-    "Sokoto": 6500,
-    "Zamfara": 6000,
+@app.get('/api/delivery/tariffs')
+def owner_tariffs(u=Depends(owner_only)):
+    return uf.list_tariffs()
 
-    # North East
-    "Adamawa": 6500,
-    "Bauchi": 5500,
-    "Borno": 7000,
-    "Gombe": 6000,
-    "Taraba": 6500,
-    "Yobe": 7000,
+@app.post('/api/delivery/tariffs')
+def owner_save_tariff(d:DeliveryTariffInput,u=Depends(owner_only)):
+    result=uf.save_tariff(d.model_dump())
+    c=conn()
+    try:
+        audit(c,u['id'],'UPSERT','delivery_tariff',result['id'],f'{d.state}/{d.city}/{d.zone}; fee={d.fee}; active={d.active}')
+        c.commit()
+    finally:c.close()
+    return result
 
-    # South West
-    "Ekiti": 5500,
-    "Lagos": 5500,
-    "Ogun": 5500,
-    "Ondo": 5500,
-    "Osun": 5500,
-    "Oyo": 5500,
-
-    # South East
-    "Abia": 6000,
-    "Anambra": 5500,
-    "Ebonyi": 5500,
-    "Enugu": 5500,
-    "Imo": 6000,
-
-    # South South
-    "Akwa Ibom": 6500,
-    "Bayelsa": 6500,
-    "Cross River": 7000,
-    "Delta": 6000,
-    "Edo": 5500,
-    "Rivers": 6500,
-}
-
-
-def calculate_delivery_fee(state, delivery_method):
-    if delivery_method.strip().lower() == "pickup":
-        return 0
-
-    state_name = state.strip()
-
-    for configured_state, fee in DELIVERY_RATES.items():
-        if configured_state.lower() == state_name.lower():
-            return fee
-
-    raise HTTPException(
-        status_code=400,
-        detail="Please select a valid Nigerian delivery state."
-    )
 @app.post('/api/store/orders')
 def create_store_order(d:StoreOrder):
+    if d.payment_method!='Paystack':
+        raise HTTPException(400,'Only Paystack checkout is currently supported.')
+    if d.delivery_method not in ('Pickup','Delivery'):
+        raise HTTPException(400,'Invalid fulfilment method.')
+    if not d.email.strip():
+        raise HTTPException(400,'Email is required for Paystack checkout.')
+    if not os.getenv('PAYSTACK_SECRET_KEY', '').startswith(('sk_test_', 'sk_live_')):
+        raise HTTPException(503, 'Online payment is temporarily unavailable. Please try again later.')
+    uf.release_expired()
+    # Validate tariff BEFORE writing order or reserving stock.
+    fee=uf.quote(d.state,d.city,d.zone,d.delivery_method)['delivery_fee']
+    if not d.items:
+        raise HTTPException(400, 'Your cart is empty.')
     c=conn(); subtotal=0; prepared=[]
+    if database_backend()=='sqlite': c.execute('BEGIN IMMEDIATE')
     for line in d.items:
-        r=c.execute('SELECT v.*,p.name,p.selling_price FROM variants v JOIN products p ON p.id=v.product_id WHERE v.id=? AND p.active=1',(line.variant_id,)).fetchone()
+        r=c.execute('SELECT v.*,p.name,p.selling_price FROM variants v JOIN products p ON p.id=v.product_id WHERE v.id=? AND p.active=1'+(' FOR UPDATE OF v' if database_backend()=='postgresql' else ''),(line.variant_id,)).fetchone()
         if not r: c.close(); raise HTTPException(404,'Product variant not found')
         av=r['qty']-r['reserved_qty']
         if av<line.qty: c.close(); raise HTTPException(400,f"Only {av} of {r['name']} available")
         lt=r['selling_price']*line.qty; subtotal+=lt; prepared.append((r,line,lt))
-    fee=calculate_delivery_fee(d.state,d.delivery_method); total=subtotal+fee
+    total=subtotal+fee
     order_no='SP-ON-'+datetime.utcnow().strftime('%y%m%d%H%M%S%f')[-12:]; access=secrets.token_urlsafe(14)
-    cur=c.execute('''INSERT INTO orders(order_no,access_token,customer_name,email,phone,address,city,state,delivery_method,delivery_fee,subtotal,total,payment_method,payment_status,order_status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(order_no,access,d.customer_name,d.email,d.phone,d.address,d.city,d.state,d.delivery_method,fee,subtotal,total,d.payment_method,'AWAITING_PAYMENT','AWAITING_PAYMENT',now())); oid=cur.lastrowid
+    cur=c.execute('''INSERT INTO orders(order_no,access_token,customer_name,email,phone,address,city,state,delivery_method,delivery_fee,subtotal,total,payment_method,payment_status,order_status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(order_no,access,d.customer_name,d.email,d.phone,d.address,(d.city+' / '+d.zone if d.delivery_method=='Delivery' else d.city),d.state,d.delivery_method,fee,subtotal,total,d.payment_method,'AWAITING_PAYMENT','AWAITING_PAYMENT',now())); oid=cur.lastrowid
     for r,line,lt in prepared:
         c.execute('INSERT INTO order_items(order_id,variant_id,product_name,size,color,qty,unit_price,line_total) VALUES(?,?,?,?,?,?,?,?)',(oid,r['id'],r['name'],r['size'],r['color'],line.qty,r['selling_price'],lt)); c.execute('UPDATE variants SET reserved_qty=reserved_qty+? WHERE id=?',(line.qty,r['id']))
     c.commit()
@@ -335,9 +307,9 @@ def initialize_paystack(order_id: int, token: str):
         c.close()
         raise HTTPException(status_code=404, detail='Order not found')
 
-    if order['payment_status'] == 'PAID':
+    if order['payment_status'] != 'AWAITING_PAYMENT':
         c.close()
-        raise HTTPException(status_code=409, detail='Order is already paid')
+        raise HTTPException(status_code=409, detail='Order is not awaiting payment')
 
     if not order['email']:
         c.close()
@@ -346,13 +318,17 @@ def initialize_paystack(order_id: int, token: str):
             detail='Customer email is required for Paystack payment.'
         )
 
+    # Mark an attempted Paystack payment before external initialization.
+    # These orders are excluded from automatic expiry until Paystack reconciliation.
+    c.execute('INSERT INTO payment_attempts(order_id,started_at) VALUES(?,?) ON CONFLICT(order_id) DO NOTHING',(order_id,now()))
+    c.commit()
     amount_kobo = int(round(float(order['total']) * 100))
 
     payload = {
     'email': order['email'],
     'amount': amount_kobo,
     'reference': order['order_no'],
-    'callback_url': 'https://sizeplusoutfit.com/api/store/paystack/callback',
+   'callback_url': os.getenv('PAYSTACK_CALLBACK_BASE_URL', 'https://sizeplusoutfit.com').rstrip('/') + '/api/store/paystack/callback?receipt_token=' + order['access_token'],
     'metadata': {
         'order_id': order['id'],
         'order_no': order['order_no']
@@ -377,22 +353,17 @@ def initialize_paystack(order_id: int, token: str):
             detail='Could not connect to Paystack.'
         )
 
-    c.close()
-
     try:
         result = response.json()
     except ValueError:
-        raise HTTPException(
-            status_code=502,
-            detail='Invalid response received from Paystack.'
-        )
+        c.close()
+        raise HTTPException(502, 'Invalid response received from Paystack.')
 
     if response.status_code >= 400 or not result.get('status'):
-        raise HTTPException(
-            status_code=502,
-            detail=result.get('message', 'Paystack initialization failed.')
-        )
+        c.close()
+        raise HTTPException(502, result.get('message', 'Paystack initialization failed.'))
 
+    c.close()
     data = result['data']
 
     return {
@@ -451,122 +422,70 @@ def verify_paystack_transaction(reference: str):
     return data
 
 def finalize_paystack_payment(reference: str, data: dict):
-    c = conn()
-
-    order = c.execute(
-        'SELECT * FROM orders WHERE order_no=?',
-        (reference,)
-    ).fetchone()
-
-    if not order:
-        c.close()
-        raise HTTPException(
-            status_code=404,
-            detail='Order not found.'
-        )
-
-    # Idempotency: never process an already-paid order twice.
-    if order['payment_status'] == 'PAID':
-        c.close()
-        return {
-            'ok': True,
-            'status': 'PAID',
-            'order_no': order['order_no']
-        }
-
-    expected_amount = int(round(float(order['total']) * 100))
-
-    if int(data.get('amount', 0)) != expected_amount:
-        c.close()
-        raise HTTPException(
-            status_code=400,
-            detail='Payment amount does not match this order.'
-        )
-
-    if data.get('reference') != order['order_no']:
-        c.close()
-        raise HTTPException(
-            status_code=400,
-            detail='Payment reference does not match this order.'
-        )
-
-    items = c.execute(
-        'SELECT * FROM order_items WHERE order_id=?',
-        (order['id'],)
-    ).fetchall()
-
-    for item in items:
-        variant = c.execute(
-            'SELECT * FROM variants WHERE id=?',
-            (item['variant_id'],)
-        ).fetchone()
-
-        if not variant or variant['qty'] < item['qty']:
-            c.close()
-            raise HTTPException(
-                status_code=409,
-                detail='Stock changed before payment confirmation.'
-            )
-
-    for item in items:
-        c.execute(
-            '''
-            UPDATE variants
-            SET qty=qty-?,
-                reserved_qty=GREATEST(reserved_qty-?,0)
-            WHERE id=?
-            ''',
-            (item['qty'], item['qty'], item['variant_id'])
-        )
-
-        c.execute(
-            '''
-            INSERT INTO stock_movements(
-                variant_id,
-                movement_type,
-                qty,
-                reason,
-                reference,
-                user_id,
-                created_at
-            )
-            VALUES(?,?,?,?,?,?,?)
-            ''',
-            (
-                item['variant_id'],
-                'OUT',
-                item['qty'],
-                'Online Paystack order',
-                order['order_no'],
-                None,
-                now()
-            )
-        )
-
-    c.execute(
-        '''
-        UPDATE orders
-        SET payment_status='PAID',
-            order_status='PAID_PROCESSING',
-            paid_at=?
-        WHERE id=?
-        ''',
-        (now(), order['id'])
-    )
-
-    c.commit()
-    c.close()
-
-    return {
-        'ok': True,
-        'status': 'PAID',
-        'order_no': order['order_no']
-    }
+    if data.get('status')!='success' or data.get('currency')!='NGN':
+        raise HTTPException(400,'Payment was not verified in NGN.')
+    c=conn()
+    try:
+        if database_backend()=='sqlite': c.execute('BEGIN IMMEDIATE')
+        order=c.execute('SELECT * FROM orders WHERE order_no=?'+(' FOR UPDATE' if database_backend()=='postgresql' else ''),(reference,)).fetchone()
+        if not order: raise HTTPException(404,'Order not found.')
+        expected_amount=int(round(float(order['total'])*100))
+        if data.get('reference')!=order['order_no'] or int(data.get('amount',0))!=expected_amount:
+            raise HTTPException(400,'Payment reference or amount mismatch.')
+        if order['payment_status']=='PAID':
+            receipt=uf.issue_receipt_in_transaction(c,order,reference)
+            c.commit()
+            return {'ok':True,'status':'PAID','order_no':order['order_no'],'receipt_no':receipt['receipt_no']}
+        if order['payment_status']!='AWAITING_PAYMENT':
+            raise HTTPException(409,'Order is no longer payable; manual payment reconciliation required.')
+        items=c.execute('SELECT * FROM order_items WHERE order_id=?',(order['id'],)).fetchall()
+        for item in items:
+            variant=c.execute('SELECT * FROM variants WHERE id=?',(item['variant_id'],)).fetchone()
+            if not variant or variant['qty']<item['qty']:
+                raise HTTPException(409,'Stock changed before payment confirmation.')
+        for item in items:
+            c.execute("UPDATE variants SET qty=qty-?,reserved_qty=CASE WHEN reserved_qty>=? THEN reserved_qty-? ELSE 0 END WHERE id=?",(item['qty'],item['qty'],item['qty'],item['variant_id']))
+            c.execute("INSERT INTO stock_movements(variant_id,movement_type,qty,reason,reference,user_id,created_at) VALUES(?,?,?,?,?,?,?)",(item['variant_id'],'OUT',item['qty'],'Online Paystack order',order['order_no'],None,now()))
+        c.execute("UPDATE orders SET payment_status='PAID',order_status='PAID_PROCESSING',paid_at=? WHERE id=?",(now(),order['id']))
+        receipt=uf.issue_receipt_in_transaction(c,order,reference)
+        c.commit()
+        return {'ok':True,'status':'PAID','order_no':order['order_no'],'receipt_no':receipt['receipt_no']}
+    except Exception:
+        c.rollback();raise
+    finally:c.close()
 
 @app.get('/api/store/paystack/callback')
-def paystack_callback(reference: str):
+def paystack_callback(reference: str, receipt_token: str = ""):
+    # Paystack redirect carries the order-scoped receipt token, not a staff credential.
     data = verify_paystack_transaction(reference)
-    return finalize_paystack_payment(reference, data)
+    result = finalize_paystack_payment(reference, data)
+    if receipt_token:
+        try:
+            order_data,receipt,items=uf.receipt_data(result['order_no'],receipt_token)
+            return HTMLResponse(uf.render_receipt(order_data,receipt,items))
+        except HTTPException:
+            pass
+    from html import escape
+    order=escape(result['order_no'])
+    return HTMLResponse(f"""<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>Payment confirmed — Sizeplus Outfit</title><style>body{{font:16px Arial;background:#faf5f6;color:#301722;text-align:center;padding:8vh 20px}}main{{max-width:520px;background:white;padding:32px;margin:auto;border-radius:16px}}h1{{color:#7b1734}}a{{color:#7b1734}}</style></head><body><main><h1>Payment confirmed</h1><p>Thank you. Your Paystack payment has been verified.</p><p>Order: <b>{order}</b></p><p>To view or save your receipt, return to your checkout tab and use its secure receipt link. If the tab is closed, contact the boutique with your order number.</p><p><a href='/'>Return to Sizeplus Outfit</a></p></main></body></html>""")
+
+@app.get('/api/store/receipts/{order_no}',response_class=HTMLResponse)
+def customer_receipt(order_no:str,token:str):
+    order,receipt,items=uf.receipt_data(order_no,token)
+    return HTMLResponse(uf.render_receipt(order,receipt,items))
+
+@app.get('/api/orders/{order_id}/receipt',response_class=HTMLResponse)
+def owner_order_receipt(order_id:int,u=Depends(current_user)):
+    c=conn()
+    try:
+        o=c.execute('SELECT * FROM orders WHERE id=?',(order_id,)).fetchone()
+        if not o: raise HTTPException(404,'Order not found')
+        if o['payment_status']!='PAID':raise HTTPException(409,'Payment not confirmed')
+        receipt=c.execute('SELECT * FROM payment_receipts WHERE order_id=?',(order_id,)).fetchone()
+        if not receipt:raise HTTPException(409,'Receipt not available')
+        items=[dict(x) for x in c.execute('SELECT * FROM order_items WHERE order_id=?',(order_id,)).fetchall()]
+        return HTMLResponse(uf.render_receipt(dict(o),dict(receipt),items))
+    finally:c.close()
 
 @app.post('/api/store/paystack/webhook')
 async def paystack_webhook(request: Request):
@@ -620,17 +539,12 @@ async def paystack_webhook(request: Request):
 
     return finalize_paystack_payment(reference, verified_data)
 
-#@app.post('/api/store/orders/{order_id}/demo-pay')
-def demo_pay(order_id:int, token:str):
-    c=conn(); o=c.execute('SELECT * FROM orders WHERE id=? AND access_token=?',(order_id,token)).fetchone()
-    if not o: c.close(); raise HTTPException(404,'Order not found')
-    if o['payment_status']=='PAID': c.close(); return {'ok':True,'status':'PAID'}
-    items=c.execute('SELECT * FROM order_items WHERE order_id=?',(order_id,)).fetchall()
-    for i in items:
-        v=c.execute('SELECT * FROM variants WHERE id=?',(i['variant_id'],)).fetchone()
-        if v['qty']<i['qty']: c.close(); raise HTTPException(409,'Stock changed before payment')
-        c.execute('UPDATE variants SET qty=qty-?,reserved_qty=GREATEST(reserved_qty-?,0) WHERE id=?',(i['qty'],i['qty'],i['variant_id'])); c.execute('INSERT INTO stock_movements(variant_id,movement_type,qty,reason,reference,user_id,created_at) VALUES(?,?,?,?,?,?,?)',(i['variant_id'],'OUT',i['qty'],'Online paid order',o['order_no'],None,now()))
-    c.execute("UPDATE orders SET payment_status='PAID',order_status='PAID_PROCESSING',paid_at=? WHERE id=?",(now(),order_id)); c.commit(); c.close(); return {'ok':True,'status':'PAID'}
+@app.post('/api/owner/reconcile-payments')
+def owner_reconcile_payments(u=Depends(current_user)):
+    if u['role']!='owner':
+        raise HTTPException(403,'Owner access required')
+    from payment_reconciliation import reconcile_stale
+    return reconcile_stale()
 
 @app.get('/api/dashboard')
 def dashboard(u=Depends(current_user)):
@@ -785,7 +699,13 @@ def order_detail(order_id:int,u=Depends(current_user)):
 def order_status(order_id:int,d:OrderStatus,u=Depends(current_user)):
     allowed=['PAID_PROCESSING','READY_FOR_DISPATCH','DISPATCHED','DELIVERED','CANCELLED']
     if d.status not in allowed: raise HTTPException(400,'Invalid status')
-    c=conn(); c.execute('UPDATE orders SET order_status=? WHERE id=?',(d.status,order_id)); audit(c,u['id'],'UPDATE','online_order',order_id,d.status); c.commit(); c.close(); return {'ok':True}
+    c=conn()
+    order=c.execute('SELECT payment_status,order_status FROM orders WHERE id=?',(order_id,)).fetchone()
+    if not order:
+        c.close(); raise HTTPException(404,'Order not found')
+    if order['payment_status']!='PAID':
+        c.close(); raise HTTPException(409,'Only verified paid orders may be fulfilled or cancelled here.')
+    c.execute('UPDATE orders SET order_status=? WHERE id=?',(d.status,order_id)); audit(c,u['id'],'UPDATE','online_order',order_id,d.status); c.commit(); c.close(); return {'ok':True}
 @app.get('/api/reports/sales')
 def reports(u=Depends(owner_only)):
     c=conn(); reps=[dict(x) for x in c.execute('SELECT u.name sales_rep,count(s.id) sales_count,coalesce(sum(s.total),0) revenue FROM users u LEFT JOIN sales s ON s.user_id=u.id GROUP BY u.id ORDER BY revenue DESC')]; channels=[dict(x) for x in c.execute("SELECT 'Walk-in' channel,count(*) sales_count,coalesce(sum(total),0) revenue FROM sales UNION ALL SELECT 'Online',count(*),coalesce(sum(total),0) FROM orders WHERE payment_status='PAID'")]; c.close(); return {'by_sales_rep':reps,'by_channel':channels}

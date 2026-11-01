@@ -58,7 +58,7 @@
 </style>
 
 </head>
-<body><div class="client-review-banner"><strong>CLIENT REVIEW PROTOTYPE</strong> <span>— For approval and testing only. No real online payment is processed in this version.</span></div>
+<body>
 <div class="top"><div>📍 Shop No. GB 19, Banex Vom (Plaza), Wuse 2, Abuja &nbsp; · &nbsp; ☎ <a href="tel:+2348033117766">08033117766</a> &nbsp; · &nbsp; ✉ <a href="mailto:sizeplus9@gmail.com">sizeplus9@gmail.com</a></div><div class="right">Nationwide Delivery &nbsp; | &nbsp; Fashion for Every Curve</div></div>
 <header class="nav"><div><div class="brand">Sizeplus Outfit</div><div class="tagline">Fashion that fits beautifully</div></div><nav><a href="#home">Home</a><a href="#shop">Shop</a><a href="#new">New Arrivals</a><a href="#collections">Collections</a><a href="#about">About</a><a href="#contact">Contact</a><a href="/staff">Staff Login</a></nav><div class="actions"><input class="searchtop" placeholder="Search products…" oninput="syncSearch(this.value)"><button class="menuBtn" onclick="toggleMenu()">Menu</button><button class="ghost" onclick="openCart()">Cart (<span id="count">0</span>)</button></div></header>
 <div id="mobileMenu" class="mobileMenu"><a href="#home" onclick="toggleMenu(false)">Home</a><a href="#shop" onclick="toggleMenu(false)">Shop</a><a href="#new" onclick="toggleMenu(false)">New Arrivals</a><a href="#collections" onclick="toggleMenu(false)">Collections</a><a href="#about" onclick="toggleMenu(false)">About</a><a href="#contact" onclick="toggleMenu(false)">Contact</a><a href="/staff">Staff Login</a></div>
@@ -86,7 +86,7 @@
        maxlength="11"
        inputmode="numeric"
        pattern="[0-9]{11}"
-       oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"><input id="email" placeholder="Email (optional)"><input id="address" placeholder="Delivery address"><div class="two"><input id="city" value="Abuja" placeholder="City"><select id="state" required>
+       oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"><input id="email" placeholder="Email (optional)"><input id="address" placeholder="Delivery address"><div class="two"><select id="city" onchange="updateDeliveryZones()"><option value="">Select city</option></select><select id="state" required onchange="updateDeliveryZones()">
 <option value="">Select State</option>
 <option value="Abia">Abia</option>
 <option value="Adamawa">Adamawa</option>
@@ -125,7 +125,7 @@
 <option value="Taraba">Taraba</option>
 <option value="Yobe">Yobe</option>
 <option value="Zamfara">Zamfara</option>
-</select></div><select id="delivery"><option>Delivery</option><option>Pickup</option></select><select id="payment"><option>Paystack</option><option>Bank Transfer</option></select><button class="add" onclick="placeOrder()">Proceed to payment</button><div id="orderMsg"></div></div></aside>
+</select></div><div class="field"><label>Delivery zone</label><select id="deliveryZone" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:10px"><option value="">Select delivery zone</option></select></div><select id="delivery" onchange="updateDeliveryZones()"><option>Delivery</option><option>Pickup</option></select><div id="deliveryQuote" class="notice">Select your destination for a delivery quote before checkout.</div><select id="payment"><option>Paystack</option><option>Bank Transfer</option></select><button class="add" onclick="placeOrder()">Proceed to payment</button><div id="orderMsg"></div></div></aside>
 <script>
 let catalog=[],cart=[],activeCategory='All',selectedProduct=null;const money=n=>'₦'+Number(n).toLocaleString();
 async function getProducts(){catalog=await (await fetch('/api/store/products')).json();renderFilters();renderCategories();renderNewArrivals();renderProducts(catalog)}
@@ -212,6 +212,37 @@ function closeCart(){
     document.getElementById('cart').classList.remove('open');
     document.getElementById('overlay').classList.remove('on');
 }
+let activeDeliveryZones=[];
+async function loadDeliveryZones(){
+  try{const r=await fetch('/api/store/delivery-zones');if(!r.ok)throw Error('Unable to load delivery destinations');activeDeliveryZones=await r.json();updateDeliveryZones()}
+  catch(e){document.getElementById('deliveryQuote').textContent=e.message}
+}
+function updateDeliveryZones(){
+ const state=document.getElementById('state').value;
+ const city=document.getElementById('city');const zone=document.getElementById('deliveryZone');
+ const priorCity=city.value,priorZone=zone.value;
+ const cities=[...new Set(activeDeliveryZones.filter(x=>x.state===state).map(x=>x.city))];
+ city.innerHTML='<option value="">Select city</option>'+cities.map(x=>`<option value="${x}">${x}</option>`).join('');
+ if(cities.includes(priorCity))city.value=priorCity;
+ const zones=activeDeliveryZones.filter(x=>x.state===state&&x.city===city.value).map(x=>x.zone);
+ zone.innerHTML='<option value="">Select delivery zone</option>'+zones.map(x=>`<option value="${x}">${x}</option>`).join('');
+ if(zones.includes(priorZone))zone.value=priorZone;
+ const pickup=document.getElementById('delivery').value==='Pickup';
+ city.disabled=zone.disabled=pickup;
+ document.getElementById('deliveryQuote').textContent=pickup?'Boutique pickup: ₦0': 'Choose an approved city and delivery zone for your quote.';
+}
+async function getDeliveryQuote(){
+ const method=document.getElementById('delivery').value;
+ const payload={state:document.getElementById('state').value,city:document.getElementById('city').value,zone:document.getElementById('deliveryZone').value,delivery_method:method};
+ const r=await fetch('/api/store/delivery-quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+ const d=await r.json();if(!r.ok)throw Error(d.detail||'Delivery quote unavailable');
+ document.getElementById('deliveryQuote').textContent='Subtotal: '+money(cart.reduce((sum,item)=>sum+item.price*item.qty,0))+' · Delivery: '+money(d.delivery_fee)+' · Total: '+money(cart.reduce((sum,item)=>sum+item.price*item.qty,0)+d.delivery_fee); return d;
+}
+document.addEventListener('change',e=>{if(['state','city','deliveryZone','delivery'].includes(e.target.id)){
+ if(e.target.id==='deliveryZone')getDeliveryQuote().catch(err=>document.getElementById('deliveryQuote').textContent=err.message);
+ else if(e.target.id==='delivery')updateDeliveryZones();
+ }});
+loadDeliveryZones();
 async function placeOrder() {
     const nameEl = document.getElementById('name');
     const phoneEl = document.getElementById('phone');
@@ -236,6 +267,7 @@ async function placeOrder() {
     const customerEmail = emailEl.value.trim();
     const customerAddress = addressEl.value.trim();
     const deliveryMethod = deliveryEl.value;
+    const zoneEl=document.getElementById('deliveryZone');
 
     if (
         !customerName ||
@@ -247,12 +279,14 @@ async function placeOrder() {
         return;
     }
 
+    try{await getDeliveryQuote()}catch(error){orderMsgEl.innerHTML='<div class="notice">'+error.message+'</div>';return;}
     const payload = {
+        zone: zoneEl.value,
         customer_name: customerName,
         email: customerEmail,
         phone: customerPhone,
         address: customerAddress || 'Boutique pickup',
-        city: cityEl.value.trim(),
+        city: cityEl.value.trim() || 'Abuja',
         state: stateEl.value.trim(),
         delivery_method: deliveryMethod,
         payment_method: paymentEl.value,
@@ -312,6 +346,7 @@ async function placeOrder() {
                 )">
                 Pay securely with Paystack
             </button>
+            <p class="small">Your receipt will appear automatically after successful Paystack verification. You can also <a target="_blank" rel="noopener" href="/api/store/receipts/${encodeURIComponent(d.order_no)}?token=${encodeURIComponent(d.token || d.access_token)}">open your receipt here after payment</a>.</p>
         </div>`;
 
     setTimeout(() => {
