@@ -609,24 +609,22 @@ async def upload_image(
 
     c = conn()
 
-    exists = c.execute(
-        'SELECT 1 FROM product_images WHERE product_id=?',
+    c.execute(
+        'UPDATE product_images SET is_primary=0 WHERE product_id=?',
         (pid,)
-    ).fetchone()
+    )
 
     c.execute(
         '''INSERT INTO product_images
         (product_id,image_url,is_primary,created_at)
         VALUES(?,?,?,?)''',
-        (pid, url, 0 if exists else 1, now())
+        (pid, url, 1, now())
     )
 
-    if not exists:
-        c.execute(
-            'UPDATE products SET image=? WHERE id=?',
-            (url, pid)
-        )
-
+    c.execute(
+        'UPDATE products SET image=? WHERE id=?',
+        (url, pid)
+    )
     audit(
         c,
         u['id'],

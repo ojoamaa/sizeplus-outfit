@@ -47,7 +47,116 @@ async function loadProducts(){products=await api('/products');let variants=produ
 async function createProduct(){try{let d=await api('/products',{method:'POST',body:JSON.stringify({name:pn.value,sku:psku.value,category:pcat.value,description:pdesc.value,cost_price:+pcost.value||0,selling_price:+pprice.value||0,low_stock_threshold:+plow.value||2,featured:pfeatured.checked,active:true})});pmsg.innerHTML='<p class="notice">Product created. Now add size/colour variants and upload photos.</p>';await loadProducts();vproduct.value=d.id}catch(e){pmsg.innerHTML='<p class="notice">'+e.message+'</p>'}}
 async function createVariant(){try{await api('/variants',{method:'POST',body:JSON.stringify({product_id:+vproduct.value,size:vsize.value,color:vcolor.value,qty:+vqty.value||0})});vsize.value=vcolor.value='';vqty.value=0;await Promise.all([loadProducts(),loadMovements(),loadDash()]);alert('Variant added')}catch(e){alert(e.message)}}
 async function uploadPhoto(pid){let f=document.getElementById('img'+pid).files[0];if(!f)return alert('Choose an image first');let fd=new FormData();fd.append('image',f);try{await api('/products/'+pid+'/images',{method:'POST',body:fd});await loadProducts();alert('Photo uploaded and available to the storefront')}catch(e){alert(e.message)}}
-async function editProduct(pid){let p=products.find(x=>x.product_id===pid);if(!p)return;let name=prompt('Product name',p.name);if(name===null)return;let category=prompt('Category',p.category);if(category===null)return;let description=prompt('Description',p.description||'');if(description===null)return;let selling=prompt('Selling price',p.selling_price);if(selling===null)return;let cost=prompt('Cost price',p.cost_price||0);if(cost===null)return;let low=prompt('Low-stock threshold',p.low_stock_threshold||2);if(low===null)return;try{await api('/products/'+pid,{method:'PATCH',body:JSON.stringify({name,category,description,selling_price:+selling,cost_price:+cost,low_stock_threshold:+low})});await Promise.all([loadProducts(),loadDash()]);alert('Product updated')}catch(e){alert(e.message)}}
+async function editProduct(pid) {
+    const p = products.find(x => x.product_id === pid);
+    if (!p) return;
+
+    const dialog = document.createElement('dialog');
+
+    dialog.style.cssText = 'width:90%;max-width:520px;border:1px solid #eadfe2;border-radius:14px;padding:24px;background:white;color:#301722;';
+
+    dialog.innerHTML = `
+        <h2>Edit Product</h2>
+        <form id="productEditForm">
+            <div class="field">
+                <label>Product name</label>
+                <input name="name" required>
+            </div>
+
+            <div class="field">
+                <label>Category</label>
+                <input name="category" required>
+            </div>
+
+            <div class="field">
+                <label>Description</label>
+                <textarea name="description"></textarea>
+            </div>
+
+            <div class="field">
+                <label>Selling price (NGN)</label>
+                <input name="selling_price" type="number"
+                       min="0" step="0.01" required>
+            </div>
+
+            <div class="field">
+                <label>Cost price (NGN)</label>
+                <input name="cost_price" type="number"
+                       min="0" step="0.01" required>
+            </div>
+
+            <div class="field">
+                <label>Low-stock threshold</label>
+                <input name="low_stock_threshold"
+                       type="number" min="0" step="1" required>
+            </div>
+
+            <div id="editError" style="color:#b35000"></div>
+
+            <div class="row" style="margin-top:16px">
+                <button type="button" id="cancelEdit">
+                    Cancel
+                </button>
+                <button type="submit" class="primary">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    `;
+
+    document.body.appendChild(dialog);
+
+    const form = dialog.querySelector('form');
+
+    form.elements.name.value = p.name || '';
+    form.elements.category.value = p.category || '';
+    form.elements.description.value = p.description || '';
+    form.elements.selling_price.value = p.selling_price ?? 0;
+    form.elements.cost_price.value = p.cost_price ?? 0;
+    form.elements.low_stock_threshold.value =
+        p.low_stock_threshold ?? 2;
+
+    dialog.querySelector('#cancelEdit').onclick =
+        () => dialog.close();
+
+    dialog.addEventListener('close', () => dialog.remove());
+
+    form.onsubmit = async function(e) {
+        e.preventDefault();
+
+        const data = Object.fromEntries(new FormData(form));
+        data.selling_price = Number(data.selling_price);
+        data.cost_price = Number(data.cost_price);
+        data.low_stock_threshold =
+            Number(data.low_stock_threshold);
+
+        const save = form.querySelector('[type="submit"]');
+        save.disabled = true;
+
+        try {
+            await api('/products/' + pid, {
+                method: 'PATCH',
+                body: JSON.stringify(data)
+            });
+        } catch (err) {
+            dialog.querySelector('#editError').textContent =
+                err.message;
+            save.disabled = false;
+            return;
+        }
+
+        dialog.close();
+
+        try {
+            await Promise.all([loadProducts(), loadDash()]);
+            alert('Product updated successfully');
+        } catch (err) {
+            alert('Product saved. Refresh the page.');
+        }
+    };
+
+    dialog.showModal();
+}{let p=products.find(x=>x.product_id===pid);if(!p)return;let name=prompt('Product name',p.name);if(name===null)return;let category=prompt('Category',p.category);if(category===null)return;let description=prompt('Description',p.description||'');if(description===null)return;let selling=prompt('Selling price',p.selling_price);if(selling===null)return;let cost=prompt('Cost price',p.cost_price||0);if(cost===null)return;let low=prompt('Low-stock threshold',p.low_stock_threshold||2);if(low===null)return;try{await api('/products/'+pid,{method:'PATCH',body:JSON.stringify({name,category,description,selling_price:+selling,cost_price:+cost,low_stock_threshold:+low})});await Promise.all([loadProducts(),loadDash()]);alert('Product updated')}catch(e){alert(e.message)}}
 async function toggleFeatured(pid,value){try{await api('/products/'+pid,{method:'PATCH',body:JSON.stringify({featured:!!value})});await loadProducts();alert(value?'Product added to New Arrivals':'Product removed from New Arrivals')}catch(e){alert(e.message)}}
 async function toggleActive(pid,value){try{await api('/products/'+pid,{method:'PATCH',body:JSON.stringify({active:!!value})});await Promise.all([loadProducts(),loadDash()]);alert(value?'Product published':'Product archived')}catch(e){alert(e.message)}}
 function addLine(){let p=products.find(x=>x.variant_id==variant.value);if(!p)return;let q=+qty.value||1;if(q>p.available)return alert('Insufficient stock');let e=poscart.find(x=>x.variant_id===p.variant_id);if(e)e.qty+=q;else poscart.push({variant_id:p.variant_id,qty:q,name:p.name,size:p.size,color:p.color,price:p.selling_price});renderCart()}function renderCart(){cartView.innerHTML=poscart.length?'<table><tr><th>Item</th><th>Qty</th><th>Total</th><th></th></tr>'+poscart.map((x,i)=>`<tr><td>${x.name} ${x.size}/${x.color}</td><td>${x.qty}</td><td>${money(x.qty*x.price)}</td><td><button onclick="poscart.splice(${i},1);renderCart()">Remove</button></td></tr>`).join('')+'</table>':'<p class="muted">No items added.</p>'}
